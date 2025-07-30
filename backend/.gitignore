@@ -1,0 +1,74 @@
+# Entorno virtual
+venv/
+env/
+__pycache__
+*.pyc
+*.pyo
+*.pyd
+*.db
+
+# Archivos de entorno
+.env
+.env.local
+.env.development.local
+.env.test.local
+.env.production.local
+.env.example
+
+# Archivos de Django
+*.log
+*.pot
+*.mo
+*~
+local_settings.py
+db.sqlite3
+
+# Carpeta de migraciones (opcional, si no quieres versionarlas)
+# produccion/migrations/
+
+# Dependencias
+pip/
+pip3/
+
+# Archivos de sistema
+.DS_Store
+Thumbs.db
+
+# Archivos de editor
+*.swp
+*.swo
+*.swn
+*.bak
+*.tmp
+*.orig
+
+# Carpeta de builds y cache
+__pycache__
+*.pyc
+*.pyo
+*.pyd
+*.db
+*.sqlite3
+*.log
+*.pot
+*.mo
+*.swo
+*.swp
+*.bak
+*.tmp
+*.orig
+*.rej
+*.DS_Store
+*.pyc
+*.pyc
+*.pyc
+*.pyc
+
+# Archivos de pruebas
+.coverage
+coverage.xml
+htmlcov/
+.pytest_cache/
+pytest_debug.log
+
+web/*
