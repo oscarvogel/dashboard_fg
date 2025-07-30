@@ -1,4 +1,4 @@
-# Mi Proyecto Fullstack (Django + Vue.js)
+# Dashboard Forestal Garuhape (Django + Vue.js)
 
 Este proyecto combina:
 - Backend: Django
@@ -17,9 +17,7 @@ python -m venv venv
 source venv/bin/activate  # Linux/Mac
 # o venv\Scripts\activate en Windows
 pip install -r requirements.txt
-python manage.py runserver
-
-### Frontend
+python manage.py runserver### Frontend 
 ```bash
 cd frontend
 npm install
