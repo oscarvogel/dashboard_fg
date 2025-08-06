@@ -21,6 +21,7 @@ from .models import CargaCombustible, Empleado, Equipo, ProduccionMensual, Regis
 from .serializers import CargaCombustibleSerializer, EmpleadoSerializer, LoginSerializer, RegistroProduccionDiarioSerializer, RegistroProduccionSerializer
 from django.db.models import Sum, F
 from datetime import datetime
+from datetime import timedelta, date
 
 class ProduccionOperadorView(APIView):
 
@@ -188,62 +189,30 @@ class RegistrosEmpleadoViewSet(DebugSerializerErrorsMixin, viewsets.GenericViewS
             "total_registros": len(serializer.data),
             "registros": serializer.data
         }, status=status.HTTP_200_OK)
-        
-
-class ProduccionFilter(df.FilterSet):
-    start_date = df.DateFilter(field_name="fecha", lookup_expr='gte')
-    end_date = df.DateFilter(field_name="fecha", lookup_expr='lte')
-    un = df.CharFilter(field_name="UN", lookup_expr='iexact')
-    operacion = df.CharFilter(field_name="operacion", lookup_expr='iexact')
-    equipo = df.CharFilter(field_name="equipo", lookup_expr='icontains')
-    operador = df.CharFilter(field_name="operador", lookup_expr='icontains')
-    patente = df.CharFilter(field_name="cod_equipo__patente", lookup_expr='icontains')
-    detalle_equipo = df.CharFilter(field_name="cod_equipo__detalle", lookup_expr='icontains')
-    acta = df.CharFilter(field_name="acta", lookup_expr='icontains')
-
-    class Meta:
-        model = RegistroProduccion
-        fields = []
-
-class ProduccionListView(APIView):
-    permission_classes = [IsAuthenticated]
-
-    def get(self, request):
-        # Filtros desde query params
-        queryset = RegistroProduccion.objects.all().select_related('cod_equipo')
-
-        # Aplicar filtros
-        filter_instance = ProduccionFilter(request.GET, queryset=queryset)
-        registros = filter_instance.qs
-
-        # Serializar
-        serializer = RegistroProduccionSerializer(registros, many=True)
-
-        return Response({
-            "count": len(serializer.data),
-            "results": serializer.data
-        }, status=status.HTTP_200_OK)        
-
+             
 class FiltrosDinamicosView(APIView):
     permission_classes = [IsAuthenticated]
 
-    # FiltrosDinamicosView
     def get(self, request):
         start_date = request.GET.get('start_date')
         end_date = request.GET.get('end_date')
-        un = request.GET.get('un')  # Nuevo: filtrar por UN
-        acta = request.GET.get('acta')  # Nuevo: filtrar por acta
+        cod_un = request.GET.get('cod_un')  # Ahora es ID
+        acta = request.GET.get('acta')
 
         filtro = Q()
         if start_date:
             filtro &= Q(fecha__gte=start_date)
         if end_date:
             filtro &= Q(fecha__lte=end_date)
-        if un:
-            filtro &= Q(UN=un)
+        if cod_un:
+            try:
+                filtro &= Q(cod_un_id=int(cod_un))
+            except (ValueError, TypeError):
+                pass  # Ignorar si no es un número válido
         if acta:
             filtro &= Q(acta=acta)
 
+        # Si no hay fechas, devolver listas vacías
         if not start_date and not end_date:
             return Response({
                 "operaciones": [],
@@ -253,22 +222,35 @@ class FiltrosDinamicosView(APIView):
                 "actas": []
             })
 
-        registros = RegistroProduccion.objects.filter(filtro).select_related('cod_equipo')
+        registros = RegistroProduccion.objects.filter(filtro).select_related('cod_equipo', 'cod_un')
 
+        # Obtener opciones únicas
         operaciones = list(registros.values_list('operacion', flat=True).distinct().order_by('operacion'))
-        unidades = list(registros.values_list('UN', flat=True).distinct().order_by('UN'))
-        equipos = list(registros.values_list('cod_equipo__detalle', flat=True).distinct().order_by('cod_equipo__detalle'))
         operadores = list(registros.values_list('operador', flat=True).distinct().order_by('operador'))
+        equipos = list(registros.values_list('cod_equipo__detalle', flat=True).distinct().order_by('cod_equipo__detalle'))
         actas = list(registros.values_list('acta', flat=True).distinct().order_by('acta'))
-        
+
+        # Unidades: obtener id y nombre
+        unidades_qs = (
+            registros
+            .values('cod_un_id', 'cod_un__nombre')
+            .distinct()
+            .order_by('cod_un__nombre')
+        )
+        unidades = [
+            {'id': item['cod_un_id'], 'nombre': item['cod_un__nombre']}
+            for item in unidades_qs
+            if item['cod_un_id']
+        ]
 
         return Response({
-            "operaciones": operaciones,
-            "unidades": [un_val for un_val in unidades if un_val],
+            "operaciones": [op for op in operaciones if op],
+            "unidades": unidades,
             "equipos": [eq for eq in equipos if eq],
             "operadores": [o for o in operadores if o],
-            "actas": [a for a in actas if a]
+            "actas": [a for a in actas if a],
         })
+        
         
 class ResumenOperacionalView(APIView):
     permission_classes = [IsAuthenticated]
@@ -289,7 +271,7 @@ class ResumenOperacionalView(APIView):
         # --- 1. ACUMULADO DEL MES (rango completo, sin importar 'fecha') ---
         filtro_mes = Q(fecha__gte=start_date, fecha__lte=end_date)
         if un:
-            filtro_mes &= Q(UN=un)
+            filtro_mes &= Q(cod_un=un)
 
         registros_mes = RegistroProduccion.objects.filter(filtro_mes).select_related('cod_equipo')
 
@@ -330,7 +312,7 @@ class ResumenOperacionalView(APIView):
         if fecha:
             filtro_dia = Q(fecha=fecha)
             if un:
-                filtro_dia &= Q(UN=un)
+                filtro_dia &= Q(cod_un=un)
             registros_dia = RegistroProduccion.objects.filter(filtro_dia).select_related('cod_equipo')
         else:
             registros_dia = []
@@ -465,9 +447,9 @@ class CargasCombustibleView(APIView):
             start_date = datetime.strptime(start_date, '%Y-%m-%d').date()
             end_date = datetime.strptime(end_date, '%Y-%m-%d').date()
         except ValueError:
-            return Response({"error": "Formato de fecha inválido"}, status=400)
+            return Response({"error": "Formato de fecha inválido. Usa YYYY-MM-DD."}, status=400)
 
-        # Filtrar
+        # Filtrar cargas en el rango de fechas
         query = CargaCombustible.objects.filter(fecha__range=[start_date, end_date])
 
         if un_id:
@@ -475,12 +457,67 @@ class CargasCombustibleView(APIView):
         if movil_id:
             query = query.filter(equipo_id=movil_id)
 
-        query = query.select_related(
-            'equipo', 'unidad_negocio', 'lugar_carga'
-        )
+        # Prefetch o select_related para optimizar consultas
+        query = query.select_related('equipo', 'unidad_negocio', 'lugar_carga')
 
+        # Calcular totales por tipo_mov
+        totales = query.values('tipo_mov').annotate(total_litros=Sum('litros')).order_by('tipo_mov')
+        totales_dict = {}
+        for item in totales:
+            tipo = 'Ingreso' if item['tipo_mov'] == 'I' else 'Egreso'
+            totales_dict[tipo] = float(item['total_litros'])
+
+        # Serializar datos detallados
         serializer = CargaCombustibleSerializer(query, many=True)
-        return Response({"results": serializer.data})
+
+        # Respuesta final
+        return Response({
+            "results": serializer.data,
+            "totales": {
+                "Ingreso": totales_dict.get("Ingreso", 0.0),
+                "Egreso": totales_dict.get("Egreso", 0.0)
+            }
+        }, status=status.HTTP_200_OK)
+        
+
+# Lista de feriados (puedes moverlo a un modelo o settings si crece)
+FERIADOS = {
+    # Agrega más según tu calendario
+}
+
+def es_dia_laborable(current_date):
+    """
+    Determina si una fecha es laborable:
+    - Lunes a Viernes → 1.0
+    - Sábado → 0.5
+    - Domingo → 0.0
+    - Feriados → 1.0 (incluso si caen domingo)
+    """
+    fecha_str = current_date.isoformat()
+    if fecha_str in FERIADOS:
+        return True
+    if current_date.weekday() in [5, 6]:  # sabado y domingo
+        return False
+    return True
+
+
+def calcular_jornadas_en_rango(start_date, end_date):
+    """
+    Devuelve una lista de tuplas: (fecha, jornada)
+    jornada: 1.0 (completo), 0.5 (medio), 0.0 (no laborable)
+    """
+    current = start_date
+    jornadas = []
+
+    while current <= end_date:
+        if es_dia_laborable(current):
+            jornada = 0.5 if current.weekday() == 5 else 1.0  # sábado = 0.5
+        else:
+            jornada = 0.0
+        jornadas.append((current.isoformat(), jornada))
+        current += timedelta(days=1)
+
+    return jornadas
 
 
 class ProduccionDashboardView(APIView):
@@ -490,38 +527,60 @@ class ProduccionDashboardView(APIView):
         # =======================
         # 1. Obtener parámetros
         # =======================
-        start_date = request.GET.get('start_date')
-        end_date = request.GET.get('end_date')
-        un = request.GET.get('un')
+        start_date_str = request.GET.get('start_date')
+        end_date_str = request.GET.get('end_date')
+        cod_un = request.GET.get('cod_un')  # Ahora es ID, no nombre
         operacion = request.GET.get('operacion')
         detalle_equipo = request.GET.get('detalle_equipo')
         operador = request.GET.get('operador')
         acta = request.GET.get('acta')
 
-        if not start_date or not end_date:
+        if not start_date_str or not end_date_str:
             return Response(
                 {"error": "Las fechas 'start_date' y 'end_date' son obligatorias."},
                 status=status.HTTP_400_BAD_REQUEST
             )
 
         try:
-            fecha_corte = datetime.strptime(end_date, '%Y-%m-%d').date()
+            start_date = datetime.strptime(start_date_str, '%Y-%m-%d').date()
+            end_date = datetime.strptime(end_date_str, '%Y-%m-%d').date()
         except ValueError:
             return Response(
-                {"error": "La fecha debe estar en formato 'YYYY-MM-DD'."},
+                {"error": "Las fechas deben estar en formato 'YYYY-MM-DD'."},
                 status=status.HTTP_400_BAD_REQUEST
             )
+
+        if start_date > end_date:
+            return Response(
+                {"error": "'start_date' no puede ser posterior a 'end_date'."},
+                status=status.HTTP_400_BAD_REQUEST
+            )
+
+        # Validar y convertir cod_un a entero si existe
+        cod_un_id = None
+        if cod_un:
+            try:
+                cod_un_id = int(cod_un)
+                # Validar que exista
+                if not UnidadNegocio.objects.filter(id=cod_un_id).exists():
+                    return Response(
+                        {"error": "La unidad de negocio especificada no existe."},
+                        status=status.HTTP_400_BAD_REQUEST
+                    )
+            except (ValueError, TypeError):
+                return Response(
+                    {"error": "El parámetro 'cod_un' debe ser un número válido."},
+                    status=status.HTTP_400_BAD_REQUEST
+                )
 
         # =======================
         # 2. Filtrar registros de producción
         # =======================
         filtro = Q()
-        if start_date:
-            filtro &= Q(fecha__gte=start_date)
-        if end_date:
-            filtro &= Q(fecha__lte=end_date)
-        if un:
-            filtro &= Q(UN=un)
+        filtro &= Q(fecha__gte=start_date) & Q(fecha__lte=end_date)
+
+        if cod_un_id:
+            filtro &= Q(cod_un_id=cod_un_id)
         if operacion:
             filtro &= Q(operacion=operacion)
         if detalle_equipo:
@@ -531,23 +590,22 @@ class ProduccionDashboardView(APIView):
         if acta:
             filtro &= Q(acta=acta)
 
-        registros = RegistroProduccion.objects.filter(filtro).select_related('cod_equipo')
-
-        # Serializar
+        registros = RegistroProduccion.objects.filter(filtro).select_related('cod_equipo', 'cod_un')
         serializer = RegistroProduccionSerializer(registros, many=True)
         results = serializer.data
 
         # =======================
-        # 3. Calcular producción esperada
+        # 3. Calcular producción esperada acumulada
         # =======================
-        periodo = fecha_corte.strftime('%Y%m')
-        _, dias_del_mes = calendar.monthrange(fecha_corte.year, fecha_corte.month)
-        proporcion = fecha_corte.day / dias_del_mes
+        periodo = end_date.strftime('%Y%m')
+        _, dias_del_mes = calendar.monthrange(end_date.year, end_date.month)
+        # proporcion = (end_date - start_date).days + 1 / dias_del_mes  # días del rango / días del mes
+        proporcion = end_date.day / dias_del_mes
 
         queryset_mensual = ProduccionMensual.objects.filter(periodo=periodo)
-        if un:
-            queryset_mensual = queryset_mensual.filter(unidad_negocio__nombre=un)  # Ajusta si usas otro campo
-
+        if cod_un_id:
+            queryset_mensual = queryset_mensual.filter(unidad_negocio_id=cod_un_id)
+        print(f"Queryset mensual: {queryset_mensual.query}")
         agregado = queryset_mensual.aggregate(
             meta_mensual=Sum('produccion'),
             total_equipos=Sum('cantidad_equipo')
@@ -556,34 +614,81 @@ class ProduccionDashboardView(APIView):
         meta_mensual = float(agregado['meta_mensual'] or 0.0)
         if operador:
             meta_mensual = meta_mensual / agregado['total_equipos'] if agregado['total_equipos'] else 0.0
-        produccion_esperada_acumulada = round(meta_mensual * proporcion, 2)
+        produccion_esperada_acumulada = round(meta_mensual * proporcion, 2)        
+
+        print(f"Producción esperada acumulada: {meta_mensual} * {proporcion} = {produccion_esperada_acumulada}")
+        # =======================
+        # 4. Calcular producción esperada por día
+        # =======================
+        jornadas = calcular_jornadas_en_rango(start_date, end_date)
+        total_jornadas = sum(jornada for _, jornada in jornadas)
+
+        if total_jornadas == 0:
+            produccion_esperada_por_dia = {item[0]: 0.0 for item in jornadas}
+        else:
+            produccion_diaria_base = produccion_esperada_acumulada / total_jornadas
+            produccion_esperada_por_dia = {
+                fecha: round(jornada * produccion_diaria_base, 2)
+                for fecha, jornada in jornadas
+            }
 
         # =======================
-        # 4. Filtros dinámicos (como en FiltrosDinamicosView)
+        # 5. Calcular consumo real de combustible desde CargaCombustible
         # =======================
-        # Reusamos el mismo filtro base
+        consumo_por_dia = {}
+        total_consumo = 0.0
+
+        try:
+            cargas_qs = CargaCombustible.objects.filter(
+                fecha__gte=start_date,
+                fecha__lte=end_date,
+                tipo_mov='E'  # Solo egresos (cargas de combustible)
+            )
+
+            # Aplicar filtros
+            if detalle_equipo:
+                cargas_qs = cargas_qs.filter(equipo__detalle=detalle_equipo)
+            
+            if cod_un_id:
+                cargas_qs = cargas_qs.filter(unidad_negocio_id=cod_un_id)
+
+            # Agrupar por fecha
+            consumos_data = cargas_qs.values('fecha').annotate(total_litros=Sum('litros'))
+            consumo_por_dia = {
+                item['fecha'].isoformat(): round(float(item['total_litros']), 2)
+                for item in consumos_data
+            }
+            total_consumo = sum(consumo_por_dia.values())
+        except Exception as e:
+            print(f"Error al calcular consumo de combustible: {e}")
+            consumo_por_dia = {}
+            total_consumo = 0.0
+
+        # =======================
+        # 6. Filtros dinámicos
+        # =======================
         registros_filtro = RegistroProduccion.objects.filter(filtro).select_related('cod_equipo')
 
-        if detalle_equipo:
-            registros_filtro = registros_filtro.filter(cod_equipo__detalle=detalle_equipo)
-
         operaciones = list(registros_filtro.values_list('operacion', flat=True).distinct().order_by('operacion'))
-        unidades = list(registros_filtro.values_list('UN', flat=True).distinct().order_by('UN'))
+        unidades = list(registros_filtro.values_list('cod_un__nombre', flat=True).distinct().order_by('cod_un__nombre'))
         equipos = list(registros_filtro.values_list('cod_equipo__detalle', flat=True).distinct().order_by('cod_equipo__detalle'))
         operadores = list(registros_filtro.values_list('operador', flat=True).distinct().order_by('operador'))
         actas = list(registros_filtro.values_list('acta', flat=True).distinct().order_by('acta'))
 
         # =======================
-        # 5. Respuesta final
+        # 7. Respuesta final
         # =======================
         return Response({
             "results": results,
             "produccion_esperada_acumulada": produccion_esperada_acumulada,
+            "produccion_esperada_por_dia": produccion_esperada_por_dia,
+            "consumo_combustible_total": round(total_consumo, 2),
+            "consumo_combustible_por_dia": consumo_por_dia,
             "filtros": {
-                "operaciones": operaciones,
+                "operaciones": [op for op in operaciones if op],
                 "unidades": [u for u in unidades if u],
                 "equipos": [e for e in equipos if e],
                 "operadores": [o for o in operadores if o],
                 "actas": [a for a in actas if a],
             }
-        }, status=status.HTTP_200_OK)    
+        }, status=status.HTTP_200_OK)		

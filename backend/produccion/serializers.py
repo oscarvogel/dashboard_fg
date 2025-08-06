@@ -78,17 +78,22 @@ class RegistroProduccionSerializer(serializers.ModelSerializer):
         ]        
         
 class CargaCombustibleSerializer(serializers.ModelSerializer):
-    movil_detalle = serializers.CharField(source='movil.detalle', read_only=True)
-    movil_patente = serializers.CharField(source='movil.patente', read_only=True)
+    movil_detalle = serializers.CharField(source='equipo.detalle', read_only=True)
+    movil_patente = serializers.CharField(source='equipo.patente', read_only=True)
     unidad_negocio_nombre = serializers.CharField(source='unidad_negocio.nombre', read_only=True)
     lugar_carga_detalle = serializers.CharField(source='lugar_carga.detalle', read_only=True, allow_null=True)
     paniol_nombre = serializers.CharField(source='paniol.nombre', read_only=True, allow_null=True)
     # personal_nombre = serializers.CharField(source='personal.nombre', read_only=True, allow_null=True)
+    # Nuevo campo: devuelve 'Ingreso' o 'Egreso' en lugar de 'I' o 'E'
+    tipo_mov_display = serializers.SerializerMethodField()
 
     class Meta:
         model = CargaCombustible
         fields = [
             'id', 'fecha', 'movil_detalle', 'movil_patente',
             'unidad_negocio_nombre', 'litros', 'km',
-            'lugar_carga_detalle', 'paniol_nombre', 
-        ]        
+            'lugar_carga_detalle', 'paniol_nombre', 'tipo_mov', 'tipo_mov_display'
+        ]
+
+    def get_tipo_mov_display(self, obj):
+        return dict(CargaCombustible.tipo_mov.field.choices).get(obj.tipo_mov, obj.tipo_mov)

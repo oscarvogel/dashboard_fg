@@ -47,6 +47,7 @@ class RegistroProduccion(models.Model):
     predio = models.CharField(max_length=50, null=True, blank=True)
     stock_abc = models.DecimalField(max_digits=12, decimal_places=2, default=0.00)
     acta = models.CharField(max_length=50, null=True, blank=True)
+    cod_un = models.ForeignKey(UnidadNegocio, on_delete=models.CASCADE, db_column='cod_un', null=True, blank=True)
 
     class Meta:
         db_table = 'tablero_produccion'
@@ -104,12 +105,13 @@ class CargaCombustible(models.Model):
     unidad_negocio = models.ForeignKey(UnidadNegocio, on_delete=models.CASCADE, db_column='UnidadNegocio', null=True, blank=True)
     km = models.DecimalField(max_digits=12, decimal_places=2, default=0.00)
     lugar_carga = models.ForeignKey(LugarCarga, on_delete=models.CASCADE, db_column='idLugarCarga', null=True, blank=True)
+    tipo_mov = models.CharField(max_length=1, choices=[('I', 'Ingreso'), ('E', 'Egreso')], default='I')
 
     class Meta:
         db_table = 'cargacomb'
         
 class ProduccionMensual(models.Model):
-    id = models.AutoField(primary_key=True, db_column="idProduccionMensual")
+    id = models.AutoField(primary_key=True, db_column="id")
     periodo = models.CharField(max_length=7)  # Formato 'YYYY-MM'
     produccion = models.DecimalField(max_digits=12, decimal_places=2, default=0.00)
     cantidad_equipo = models.IntegerField(default=0)

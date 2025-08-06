@@ -36,7 +36,13 @@
             @change="cargarDatos"
           >
             <option value="">Todas</option>
-            <option v-for="un in unidadesDisponibles" :key="un" :value="un">{{ un }}</option>
+            <!-- 
+            
+            <option v-for="un in unidadesDisponibles" :key="un" :value="un">{{ un }}</option> -->
+              <option v-for="un in unidadesDisponibles" :key="un.id" :value="un.id">
+                {{ un.nombre }}
+              </option>
+
           </select>
         </div>
 
