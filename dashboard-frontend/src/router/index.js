@@ -3,6 +3,7 @@ import { createRouter, createWebHistory } from 'vue-router'
 import ResumenOperacional from '../views/ResumenOperacional.vue'
 import ResumenCombustible from '../views/ResumenCombustible.vue'
 import ReporteProduccion from '../views/ReporteProduccion.vue'
+import HorasNoOperativas from '../views/HorasNoOperativas.vue'
 
 const LoginView = () => import('../views/LoginView.vue')
 const DashboardView = () => import('../views/DashboardView.vue')
@@ -32,7 +33,13 @@ const routes = [
     name: 'ReporteProduccion',
     component: ReporteProduccion,
     meta: { requiresAuth: true }
-  }  
+  }  ,
+ {
+    path: '/horas-no-operativas',
+    name: 'HorasNoOperativas',
+    component: HorasNoOperativas,
+    meta: { requiresAuth: true }
+  }
 ]
 
 const router = createRouter({

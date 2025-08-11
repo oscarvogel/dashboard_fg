@@ -36,7 +36,7 @@
               class="w-full border-gray-300 rounded-lg shadow-sm focus:ring-indigo-500 focus:border-indigo-500"
             >
               <option value="">-- Seleccionar UN --</option>
-              <option v-for="un in unidades" :key="un" :value="un">{{ un }}</option>
+              <option v-for="un in unidades" :key="un.id" :value="un.id">{{ un.nombre }}</option>
             </select>
           </div>
 
@@ -232,34 +232,48 @@ export default {
         this.resetFilters();
         return;
       }
-
       this.loading = true;
       try {
         const params = new URLSearchParams({
           start_date: this.startDate,
           end_date: this.endDate,
         });
-        if (this.selectedUN) params.append('un', this.selectedUN);
+        if (this.selectedUN) params.append('cod_un', this.selectedUN);
 
         const res = await api.get('/api/filtros/', { params });
         const data = res.data;
 
         this.unidades = data.unidades || [];
-        this.equipos = data.equipos || [];
 
-        // Limpiar selecciones si ya no son válidas
-        if (this.selectedUN && !this.unidades.includes(this.selectedUN)) {
+        // Validar si la UN seleccionada sigue siendo válida
+        if (this.selectedUN && !this.unidades.some(un => un.id == this.selectedUN)) {
           this.selectedUN = '';
           this.equipos = [];
           this.selectedEquipo = '';
+          this.tabla = [];
+          this.tablaOriginal = [];
+          this.loaded = false;
         }
+
+        // Actualizar equipos disponibles
+        this.equipos = data.equipos || [];
+
+        // Validar si el equipo seleccionado sigue estando disponible
         if (this.selectedEquipo && !this.equipos.includes(this.selectedEquipo)) {
           this.selectedEquipo = '';
+          this.tabla = [];
+          this.tablaOriginal = [];
+          this.loaded = false;
         }
+
       } catch (error) {
         console.error('Error al cargar filtros:', error);
         this.unidades = [];
         this.equipos = [];
+        this.selectedEquipo = '';
+        this.tabla = [];
+        this.tablaOriginal = [];
+        this.loaded = false;
       } finally {
         this.loading = false;
       }

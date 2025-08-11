@@ -151,6 +151,13 @@ const menuItems = [
   viewBox: '0 0 24 24',
   iconClass: 'h-5 w-5 text-green-300', // color verde para asociarlo con producción
   iconPath: 'M9 17v-2m3 2v-4m3 4v-6m2 10H7a2 2 0 01-2-2V5a2 2 0 012-2h10a2 2 0 012 2v10a2 2 0 01-2 2z'
+},{
+  name: 'No Operativas',
+  path: '/horas-no-operativas',
+  xmlns: 'http://www.w3.org/2000/svg', // SVG namespace
+  viewBox: '0 0 24 24', // SVG viewBox
+  iconClass: 'h-5 w-5 text-purple-300', // Icon class for styling (e.g., color)
+  iconPath: 'M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z' // Path for a clock icon (representing time/hours)
 }
 ]
 

@@ -9,6 +9,9 @@ from django.contrib.auth import authenticate
 from django.db.models import Q
 from django.contrib.auth.hashers import check_password as django_check_password
 
+from django.db.models.functions import Trim
+from django.utils.dateparse import parse_date
+
 # Create your views here.
 from produccion_api.BaseViewSet import BaseAppModelViewSet, DebugSerializerErrorsMixin, StandarPagination
 from rest_framework.views import APIView
@@ -198,6 +201,7 @@ class FiltrosDinamicosView(APIView):
         end_date = request.GET.get('end_date')
         cod_un = request.GET.get('cod_un')  # Ahora es ID
         acta = request.GET.get('acta')
+        predio = request.GET.get('predio')
 
         filtro = Q()
         if start_date:
@@ -219,7 +223,8 @@ class FiltrosDinamicosView(APIView):
                 "unidades": [],
                 "equipos": [],
                 "operadores": [],
-                "actas": []
+                "actas": [],
+                "predios": []
             })
 
         registros = RegistroProduccion.objects.filter(filtro).select_related('cod_equipo', 'cod_un')
@@ -229,6 +234,8 @@ class FiltrosDinamicosView(APIView):
         operadores = list(registros.values_list('operador', flat=True).distinct().order_by('operador'))
         equipos = list(registros.values_list('cod_equipo__detalle', flat=True).distinct().order_by('cod_equipo__detalle'))
         actas = list(registros.values_list('acta', flat=True).distinct().order_by('acta'))
+        predios = list(registros.values_list('predio', flat=True).distinct().order_by('predio'))
+
 
         # Unidades: obtener id y nombre
         unidades_qs = (
@@ -249,6 +256,7 @@ class FiltrosDinamicosView(APIView):
             "equipos": [eq for eq in equipos if eq],
             "operadores": [o for o in operadores if o],
             "actas": [a for a in actas if a],
+            "predios": [p for p in predios if p]
         })
         
         
@@ -603,9 +611,14 @@ class ProduccionDashboardView(APIView):
         proporcion = end_date.day / dias_del_mes
 
         queryset_mensual = ProduccionMensual.objects.filter(periodo=periodo)
+        if operacion:
+            queryset_mensual = queryset_mensual.filter(tipo_operacion=operacion)
         if cod_un_id:
             queryset_mensual = queryset_mensual.filter(unidad_negocio_id=cod_un_id)
-        print(f"Queryset mensual: {queryset_mensual.query}")
+            
+        # Obtener la unidad_produccion (asumiendo que todos los registros coinciden)
+        unidad_produccion = queryset_mensual.values_list('unidad_produccion', flat=True).distinct().first()
+        
         agregado = queryset_mensual.aggregate(
             meta_mensual=Sum('produccion'),
             total_equipos=Sum('cantidad_equipo')
@@ -614,9 +627,8 @@ class ProduccionDashboardView(APIView):
         meta_mensual = float(agregado['meta_mensual'] or 0.0)
         if operador:
             meta_mensual = meta_mensual / agregado['total_equipos'] if agregado['total_equipos'] else 0.0
-        produccion_esperada_acumulada = round(meta_mensual * proporcion, 2)        
+        produccion_esperada_acumulada = round(meta_mensual * proporcion, 2)
 
-        print(f"Producción esperada acumulada: {meta_mensual} * {proporcion} = {produccion_esperada_acumulada}")
         # =======================
         # 4. Calcular producción esperada por día
         # =======================
@@ -682,6 +694,7 @@ class ProduccionDashboardView(APIView):
             "results": results,
             "produccion_esperada_acumulada": produccion_esperada_acumulada,
             "produccion_esperada_por_dia": produccion_esperada_por_dia,
+            "unidad_produccion": unidad_produccion,
             "consumo_combustible_total": round(total_consumo, 2),
             "consumo_combustible_por_dia": consumo_por_dia,
             "filtros": {
@@ -692,3 +705,68 @@ class ProduccionDashboardView(APIView):
                 "actas": [a for a in actas if a],
             }
         }, status=status.HTTP_200_OK)		
+
+class HorasNoOperativasDashboardView(APIView):
+    permission_classes = [IsAuthenticated]
+
+    def get(self, request, *args, **kwargs):
+        cod_un_id = request.query_params.get('un', None)
+        fecha_inicio_str = request.query_params.get('fecha_inicio', None)
+        fecha_fin_str = request.query_params.get('fecha_fin', None)
+
+        fecha_inicio = parse_date(fecha_inicio_str) if fecha_inicio_str else None
+        fecha_fin = parse_date(fecha_fin_str) if fecha_fin_str else None
+
+        if not fecha_inicio or not fecha_fin:
+            return Response({
+                "error": "Debe proporcionar fecha_inicio y fecha_fin."
+            }, status=status.HTTP_400_BAD_REQUEST)
+
+        # Filtrar registros
+        registros = RegistroProduccion.objects.filter(
+            fecha__range=[fecha_inicio, fecha_fin]
+        ).exclude(motivo_no_op__exact='').filter(motivo_no_op__isnull=False)
+
+        registros = registros.filter(hrs_no_operativas__gt=0)
+        if cod_un_id:
+            registros = registros.filter(cod_un_id=cod_un_id)
+
+        # === DATOS PARA EL GRÁFICO (agrupado por motivo) ===
+        registros_annotated = registros.annotate(motivo_limpio=Trim(F('motivo_no_op')))
+        datos_agrupados = (
+            registros_annotated
+            .values('motivo_limpio')
+            .annotate(total_hrs_no_op=Sum('hrs_no_operativas'))
+            .order_by('-total_hrs_no_op')
+        )
+
+        results_grafico = [
+            {
+                "motivo": item['motivo_limpio'],
+                "total_hrs_no_op": float(item['total_hrs_no_op'])
+            }
+            for item in datos_agrupados
+        ]
+
+        # === DATOS PARA LA TABLA (registros crudos) ===
+        datos_tabla = []
+        for reg in registros.select_related('cod_un'):  # optimiza con select_related
+            datos_tabla.append({
+                "un": reg.cod_un.nombre if reg.cod_un else reg.UN,  # Usa nombre de UnidadNegocio si existe, sino campo UN
+                "fecha": reg.fecha.isoformat() if reg.fecha else None,
+                "hrs_no_operativas": float(reg.hrs_no_operativas),
+                "motivo": reg.motivo_no_op.strip(),
+                "observaciones": reg.observaciones or '-'
+            })
+
+        # === UNIDADES DISPONIBLES ===
+        unidades_ids = registros.values_list('cod_un_id', flat=True).distinct()
+        unidades = UnidadNegocio.objects.filter(id__in=unidades_ids).values('id', 'nombre')
+        unidades_disponibles = [{"id": u['id'], "nombre": u['nombre']} for u in unidades]
+
+        return Response({
+            "results_grafico": results_grafico,
+            "datos_tabla": datos_tabla,
+            "unidades_disponibles": unidades_disponibles,
+            "total_registros": len(datos_tabla)
+        }, status=status.HTTP_200_OK)

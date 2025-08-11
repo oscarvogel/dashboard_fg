@@ -40,6 +40,8 @@ class RegistroProduccion(models.Model):
     produccion = models.DecimalField(max_digits=12, decimal_places=2, default=0.00)
     unidad_produccion = models.CharField(max_length=50, null=True, blank=True)
     hrs_no_operativas = models.DecimalField(max_digits=12, decimal_places=2, default=0.00, db_column='hrs_no_op')
+    motivo_no_op = models.CharField(max_length=150, null=True, blank=True)
+    observaciones = models.CharField(max_length=150, null=True, blank=True)
     plantas = models.DecimalField(max_digits=12, decimal_places=2, default=0.00)
     cod_equipo = models.ForeignKey('Equipo', on_delete=models.CASCADE, db_column='cod_equipo')
     combustible = models.DecimalField(max_digits=12, decimal_places=2, default=0.00)
@@ -48,6 +50,7 @@ class RegistroProduccion(models.Model):
     stock_abc = models.DecimalField(max_digits=12, decimal_places=2, default=0.00)
     acta = models.CharField(max_length=50, null=True, blank=True)
     cod_un = models.ForeignKey(UnidadNegocio, on_delete=models.CASCADE, db_column='cod_un', null=True, blank=True)
+    
 
     class Meta:
         db_table = 'tablero_produccion'
@@ -113,9 +116,11 @@ class CargaCombustible(models.Model):
 class ProduccionMensual(models.Model):
     id = models.AutoField(primary_key=True, db_column="id")
     periodo = models.CharField(max_length=7)  # Formato 'YYYY-MM'
+    tipo_operacion = models.CharField(max_length=50, null=True, blank=True)
     produccion = models.DecimalField(max_digits=12, decimal_places=2, default=0.00)
     cantidad_equipo = models.IntegerField(default=0)
     unidad_negocio = models.ForeignKey(UnidadNegocio, on_delete=models.CASCADE, db_column='un', null=True, blank=True)
+    unidad_produccion = models.CharField(max_length=50, null=True, blank=True)
 
     class Meta:
         db_table = 'produccion_mensual'        

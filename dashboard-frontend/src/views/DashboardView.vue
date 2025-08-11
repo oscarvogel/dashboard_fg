@@ -91,6 +91,17 @@
               <option v-for="ac in actas" :key="ac" :value="ac">{{ ac }}</option>
             </select>
           </div>
+          <!--Predios-->
+          <div>
+            <label class="block text-sm font-medium text-gray-600 mb-1">Predios</label>
+            <select
+              v-model="filters.predio"
+              class="w-full px-3 py-1.5 border border-gray-300 rounded-md shadow-sm focus:ring-2 focus:ring-blue-500 focus:outline-none text-sm"
+            >
+              <option value="">Todos</option>
+              <option v-for="pred in predios" :key="pred" :value="pred">{{ pred }}</option>
+            </select>
+          </div>          
           <button
             type="submit"
             :disabled="loading"
@@ -122,78 +133,98 @@
           Filtros
         </button>
 
-        <!-- KPIs -->
-        <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-7 gap-6 mb-6">
-          <div class="bg-white p-6 rounded-xl shadow-sm hover:shadow-md transition-shadow duration-300 text-center transform hover:-translate-y-1 transition-transform duration-300 animate-fade-in-up">
-            <div class="inline-flex p-2 bg-blue-100 rounded-lg mb-2">
-              <svg xmlns="http://www.w3.org/2000/svg" class="h-6 w-6 text-blue-600" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 012-2h2a2 2 0 012 2v14a2 2 0 01-2 2h-2a2 2 0 01-2-2z" />
-              </svg>
-            </div>
-            <h3 class="text-sm font-medium text-gray-500 mb-1">Producción Total</h3>
-            <p class="text-xl md:text-2xl font-bold text-blue-700">{{ formatNumber(totalProduccion) }}</p>
-            <p class="text-xs text-gray-500 mt-1">
-              <span :class="colorCumplimiento">{{ iconoCumplimiento }} {{ formatNumber(produccionEsperada) }}</span>
-            </p>
+      <!-- KPIs -->
+      <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-6 mb-6">
+
+        <!-- 🟩 Producción Total (importante) -->
+        <div class="bg-white p-6 rounded-xl shadow-sm hover:shadow-md transition-all duration-300 text-center transform hover:-translate-y-1 animate-fade-in-up">
+          <div class="inline-flex p-2 bg-blue-100 rounded-lg mb-2">
+            <svg xmlns="http://www.w3.org/2000/svg" class="h-6 w-6 text-blue-600" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+              <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 012-2h2a2 2 0 012 2v14a2 2 0 01-2 2h-2a2 2 0 01-2-2z" />
+            </svg>
           </div>
-          <div class="bg-white p-6 rounded-xl shadow-sm hover:shadow-md transition-shadow duration-300 text-center transform hover:-translate-y-1 transition-transform duration-300 animate-fade-in-up" style="animation-delay: 100ms">
-            <div class="inline-flex p-2 bg-purple-100 rounded-lg mb-2">
-              <svg xmlns="http://www.w3.org/2000/svg" class="h-6 w-6 text-purple-600" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z" />
-              </svg>
-            </div>
-            <h3 class="text-sm font-medium text-gray-500 mb-1">Total de Horas</h3>
-            <p class="text-xl md:text-2xl font-bold text-orange-700">{{ formatNumber(totalHoras) }} Hrs</p>
-          </div>
-          <div class="bg-white p-6 rounded-xl shadow-sm hover:shadow-md transition-shadow duration-300 text-center transform hover:-translate-y-1 transition-transform duration-300 animate-fade-in-up" style="animation-delay: 100ms">
-            <div class="inline-flex p-2 bg-orange-100 rounded-lg mb-2">
-              <svg xmlns="http://www.w3.org/2000/svg" class="h-6 w-6 text-orange-600" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 9l-7 7-7-7" />
-              </svg>
-            </div>
-            <h3 class="text-sm font-medium text-gray-500 mb-1">Combustible Total</h3>
-            <p class="text-xl md:text-2xl font-bold text-orange-700">{{ formatNumber(totalCombustible) }} L</p>
-          </div>
-          <div class="bg-white p-6 rounded-xl shadow-sm hover:shadow-md transition-shadow duration-300 text-center transform hover:-translate-y-1 transition-transform duration-300 animate-fade-in-up" style="animation-delay: 200ms">
-            <div class="inline-flex p-2 bg-green-100 rounded-lg mb-2">
-              <svg xmlns="http://www.w3.org/2000/svg" class="h-6 w-6 text-green-600" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 7h8m0 0v8m0-8l-8 8-4-4-8 8" />
-              </svg>
-            </div>
-            <h3 class="text-sm font-medium text-gray-500 mb-1">Eficiencia</h3>
-            <p class="text-xl md:text-2xl font-bold text-green-700">{{ eficiencia }} prod/L</p>
-            <p class="text-xs text-gray-500 mt-1">producción / combustible</p>
-          </div>
-          <div class="bg-white p-6 rounded-xl shadow-sm hover:shadow-md transition-shadow duration-300 text-center transform hover:-translate-y-1 transition-transform duration-300 animate-fade-in-up" style="animation-delay: 300ms">
-            <div class="inline-flex p-2 bg-red-100 rounded-lg mb-2">
-              <svg xmlns="http://www.w3.org/2000/svg" class="h-6 w-6 text-red-600" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z" />
-              </svg>
-            </div>
-            <h3 class="text-sm font-medium text-gray-500 mb-1">Horas No Operativas</h3>
-            <p class="text-xl md:text-2xl font-bold text-red-700">{{ formatNumber(totalHrsNoOperativas) }} h</p>
-          </div>
-          <div class="bg-white p-6 rounded-xl shadow-sm hover:shadow-md transition-shadow duration-300 text-center transform hover:-translate-y-1 transition-transform duration-300 animate-fade-in-up" style="animation-delay: 400ms">
-            <div class="inline-flex p-2 bg-amber-100 rounded-lg mb-2">
-              <svg xmlns="http://www.w3.org/2000/svg" class="h-6 w-6 text-amber-600" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 6v6m0 0v6m0-6h6m-6 0H6" />
-              </svg>
-            </div>
-            <h3 class="text-sm font-medium text-gray-500 mb-1">Consumo por Hora</h3>
-            <p class="text-xl md:text-2xl font-bold text-amber-700">{{ consumoPorHora }} L/h</p>
-            <p class="text-xs text-gray-500 mt-1">litros por hora trabajada</p>
-          </div>
-          <div class="bg-white p-6 rounded-xl shadow-sm hover:shadow-md transition-shadow duration-300 text-center transform hover:-translate-y-1 transition-transform duration-300 animate-fade-in-up" style="animation-delay: 500ms">
-            <div class="inline-flex p-2 bg-red-100 rounded-lg mb-2">
-              <svg xmlns="http://www.w3.org/2000/svg" class="h-6 w-6 text-red-600" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M20 7l-8-4-8 4m16 0v10l-8 4-8-4V7" />
-              </svg>
-            </div>
-            <h3 class="text-sm font-medium text-gray-500 mb-1">Stock ABC</h3>
-            <p class="text-xl md:text-2xl font-bold text-red-700">{{ formatNumber(totalStockABC) }} TN</p>
-          </div>
+          <h3 class="text-sm font-medium text-gray-500 mb-1">Producción Real</h3>
+          <p class="text-xl font-bold text-blue-700">{{ formatNumber(totalProduccion) }} {{ unidad_produccion }}</p>
+          <p class="text-sm text-gray-500 mt-1">
+            <span :class="colorCumplimiento">{{ iconoCumplimiento }} {{ formatNumber(produccionEsperada) }} esperado</span>
+          </p>
         </div>
 
+        <!-- 🟥 Cumplimiento de Meta (NUEVO KPI IMPORTANTE) -->
+        <div class="bg-white p-6 rounded-xl shadow-sm hover:shadow-md transition-all duration-300 text-center transform hover:-translate-y-1 animate-fade-in-up" style="animation-delay: 100ms">
+          <div class="inline-flex p-2 bg-green-100 rounded-lg mb-2">
+            <svg xmlns="http://www.w3.org/2000/svg" class="h-6 w-6 text-green-600" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+              <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z" />
+            </svg>
+          </div>
+          <h3 class="text-sm font-medium text-gray-500 mb-1">Cumplimiento</h3>
+          <p 
+            class="text-xl font-bold"
+            :class="eficiencia < 90 ? 'text-red-700' : eficiencia < 100 ? 'text-orange-700' : 'text-green-700'"
+          >
+            {{ eficiencia }}%
+          </p>
+          <p class="text-xs text-gray-500 mt-1">
+            {{ eficiencia >= 100 ? 'Meta superada' : eficiencia >= 90 ? 'Cerca de la meta' : 'Estamos debajo de la meta' }}
+          </p>
+        </div>
+
+        <!-- ⚙️ Total Horas -->
+        <div class="bg-white p-6 rounded-xl shadow-sm hover:shadow-md transition-all duration-300 text-center transform hover:-translate-y-1 animate-fade-in-up" style="animation-delay: 200ms">
+          <div class="inline-flex p-2 bg-orange-100 rounded-lg mb-2">
+            <svg xmlns="http://www.w3.org/2000/svg" class="h-6 w-6 text-orange-600" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+              <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z" />
+            </svg>
+          </div>
+          <h3 class="text-sm font-medium text-gray-500 mb-1">Horas Trabajadas</h3>
+          <p class="text-xl font-bold text-orange-700">{{ formatNumber(totalHoras) }} h</p>
+        </div>
+
+        <!-- ⛽ Combustible -->
+        <div class="bg-white p-6 rounded-xl shadow-sm hover:shadow-md transition-all duration-300 text-center transform hover:-translate-y-1 animate-fade-in-up" style="animation-delay: 300ms">
+          <div class="inline-flex p-2 bg-red-100 rounded-lg mb-2">
+            <svg xmlns="http://www.w3.org/2000/svg" class="h-6 w-6 text-red-600" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+              <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 9l-7 7-7-7" />
+            </svg>
+          </div>
+          <h3 class="text-sm font-medium text-gray-500 mb-1">Combustible</h3>
+          <p class="text-xl font-bold text-red-700">{{ formatNumber(totalCombustible) }} L</p>
+        </div>
+
+        <!-- 🔥 Consumo por Hora -->
+        <div class="bg-white p-6 rounded-xl shadow-sm hover:shadow-md transition-all duration-300 text-center transform hover:-translate-y-1 animate-fade-in-up" style="animation-delay: 400ms">
+          <div class="inline-flex p-2 bg-amber-100 rounded-lg mb-2">
+            <svg xmlns="http://www.w3.org/2000/svg" class="h-6 w-6 text-amber-600" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+              <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 6v6m0 0v6m0-6h6m-6 0H6" />
+            </svg>
+          </div>
+          <h3 class="text-sm font-medium text-gray-500 mb-1">Consumo por Hora</h3>
+          <p class="text-xl font-bold text-amber-700">{{ consumoPorHora }} L/h</p>
+        </div>
+
+        <!-- 📉 Horas No Operativas -->
+        <div class="bg-white p-6 rounded-xl shadow-sm hover:shadow-md transition-all duration-300 text-center transform hover:-translate-y-1 animate-fade-in-up" style="animation-delay: 500ms">
+          <div class="inline-flex p-2 bg-gray-100 rounded-lg mb-2">
+            <svg xmlns="http://www.w3.org/2000/svg" class="h-6 w-6 text-gray-600" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+              <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z" />
+            </svg>
+          </div>
+          <h3 class="text-sm font-medium text-gray-500 mb-1">No Operativas</h3>
+          <p class="text-xl font-bold text-gray-700">{{ formatNumber(totalHrsNoOperativas) }} h</p>
+        </div>
+
+        <!-- 🏭 Stock ABC (menos prioritario) -->
+        <div class="bg-white p-6 rounded-xl shadow-sm hover:shadow-md transition-all duration-300 text-center transform hover:-translate-y-1 animate-fade-in-up" style="animation-delay: 600ms">
+          <div class="inline-flex p-2 bg-purple-100 rounded-lg mb-2">
+            <svg xmlns="http://www.w3.org/2000/svg" class="h-6 w-6 text-purple-600" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+              <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M20 7l-8-4-8 4m16 0v10l-8 4-8-4V7" />
+            </svg>
+          </div>
+          <h3 class="text-sm font-medium text-gray-500 mb-1">Stock ABC</h3>
+          <p class="text-xl font-bold text-purple-700">{{ formatNumber(totalStockABC) }} TN</p>
+        </div>
+
+      </div>
         <!-- Gráfico Producción y Horas -->
         <div class="bg-white p-6 rounded-lg shadow mb-6">
           <h2 class="text-xl font-semibold mb-4">Producción y Horas Trabajadas por Día</h2>
@@ -218,7 +249,7 @@
           <BarChart :chart-data="chartDataCombustible" />
         </div>
         <div class="bg-white p-6 rounded-lg shadow mb-6">
-          <h2 class="text-xl font-semibold mb-4">Combustible vs. Horas Trabajadas</h2>
+          <h2 class="text-xl font-semibold mb-4">Consumo por Hora (L/h)</h2>
           <BarChart
             :chart-data="chartDataConsumoHora"
             :options="chartOptionsConsumoHora"
@@ -352,7 +383,8 @@ const filters = ref({
   operacion: '',
   detalle_equipo: '',
   operador: '',
-  acta: ''
+  acta: '',
+  predio: '',
 })
 
 const operaciones = ref([])
@@ -360,6 +392,9 @@ const unidades = ref([])
 const equipos = ref([])
 const operadores = ref([])
 const actas = ref([])
+const predios = ref([])
+const unidad_produccion = ref('')
+
 const registros = ref([])
 const loading = ref(false)
 const loadingFiltros = ref(false)
@@ -370,6 +405,19 @@ const isMobile = computed(() => window.innerWidth < 1024)
 const totalProduccion = computed(() => {
   return registros.value.reduce((sum, r) => sum + parseFloat(r.produccion || 0), 0)
 })
+const desvioAbsoluto = computed(() => {
+  return totalProduccion.value - parseFloat(produccionEsperada.value || 0)
+})
+
+const desvioPorcentual = computed(() => {
+  const esperada = parseFloat(produccionEsperada.value || 0)
+  const real = totalProduccion.value
+
+  if (esperada === 0) return real > 0 ? Infinity : 0 // Evitar división por cero
+
+  return ((real - esperada) / esperada) * 100
+})
+
 const totalStockABC = computed(() => {
   if (registros.value.length === 0) return 0
   const fechaMaxima = registros.value.reduce((max, r) => (r.fecha > max ? r.fecha : max), '')
@@ -390,11 +438,25 @@ const totalHoras = computed(() => {
     return sum + Math.max(0, fin - inicio)
   }, 0)
 })
+
+// const eficiencia = computed(() => {
+//   const prod = totalProduccion.value
+//   const comb = totalCombustible.value
+//   return comb > 0 ? (prod / comb).toFixed(2) : 0
+// })
+// const totalProduccion = computed(() => {
+//   return registros.value.reduce((sum, r) => sum + parseFloat(r.produccion || 0), 0)
+// })
+
 const eficiencia = computed(() => {
-  const prod = totalProduccion.value
-  const comb = totalCombustible.value
-  return comb > 0 ? (prod / comb).toFixed(2) : 0
+  const esperada = parseFloat(produccionEsperada.value || 0)
+  const real = totalProduccion.value
+
+  if (esperada === 0) return real === 0 ? 100 : 0 // O Infinity, según tu necesidad
+
+  return parseFloat(((real / esperada) * 100).toFixed(2))
 })
+
 const consumoPorHora = computed(() => {
   return totalHoras.value > 0 ? (totalCombustible.value / totalHoras.value).toFixed(2) : 0
 })
@@ -616,18 +678,34 @@ const chartDataCombustible = computed(() => {
 
 const chartDataConsumoHora = computed(() => {
   const dataPorFecha = {}
+
   registros.value.forEach(r => {
     const fecha = r.fecha || 'Sin fecha'
     if (!dataPorFecha[fecha]) dataPorFecha[fecha] = { combustible: 0, horas: 0 }
+
     dataPorFecha[fecha].combustible += parseFloat(r.combustible || 0)
     dataPorFecha[fecha].horas += Math.max(0, parseFloat(r.hr_fin || 0) - parseFloat(r.hr_inicio || 0))
   })
+
   const fechas = Object.keys(dataPorFecha).sort()
+
+  // Calcular consumo por hora (L/h), evitando división por cero
+  const consumoPorHora = fechas.map(fecha => {
+    const { combustible, horas } = dataPorFecha[fecha]
+    return horas > 0 ? combustible / horas : 0 // Si no hay horas, pones 0 o null si prefieres omitirlo
+  })
+
   return {
     labels: fechas,
     datasets: [
-      { label: 'Combustible (L)', data: fechas.map(f => dataPorFecha[f].combustible), backgroundColor: 'rgba(255, 99, 132, 0.6)', borderColor: 'rgba(255, 99, 132, 1)', borderWidth: 1, yAxisID: 'y' },
-      { label: 'Horas Trabajadas', data: fechas.map(f => dataPorFecha[f].horas), backgroundColor: 'rgba(54, 162, 235, 0.6)', borderColor: 'rgba(54, 162, 235, 1)', borderWidth: 1, yAxisID: 'y1' }
+      {
+        label: 'Consumo por Hora (L/h)',
+        data: consumoPorHora,
+        backgroundColor: 'rgba(75, 192, 192, 0.6)',
+        borderColor: 'rgba(75, 192, 192, 1)',
+        borderWidth: 1,
+        yAxisID: 'y'
+      }
     ]
   }
 })
@@ -635,10 +713,22 @@ const chartDataConsumoHora = computed(() => {
 const chartOptionsConsumoHora = {
   responsive: true,
   maintainAspectRatio: false,
-  interaction: { mode: 'index', intersect: false },
+  interaction: { 
+    mode: 'index', 
+    intersect: false 
+  },
   scales: {
-    y: { type: 'linear', display: true, position: 'left', title: { display: true, text: 'Litros de combustible' } },
-    y1: { type: 'linear', display: true, position: 'right', title: { display: true, text: 'Horas trabajadas' }, grid: { drawOnChartArea: false } }
+    // Eliminamos y1 porque ya no hay horas como dataset
+    y: {
+      type: 'linear',
+      display: true,
+      position: 'left',
+      title: {
+        display: true,
+        text: 'Consumo por Hora (L/h)'  // Título actualizado
+      }
+    }
+    // y1 eliminado
   }
 }
 
@@ -655,6 +745,7 @@ const cargarFiltros = async () => {
     equipos.value = response.data.equipos || []
     operadores.value = response.data.operadores || []
     actas.value = response.data.actas || []
+    predios.value = response.data.predios || []
   } catch (error) {
     console.error('Error al cargar filtros:', error)
   } finally {
@@ -671,6 +762,7 @@ const fetchProduccion = async () => {
     produccionEsperada.value = response.data.produccion_esperada_acumulada || 0
     produccionEsperadaPorDia.value = response.data.produccion_esperada_por_dia || {}
     totalCombustible.value = response.data.consumo_combustible_total || 0
+    unidad_produccion.value = response.data.unidad_produccion || ''
     showSidebar.value = false
   } catch (error) {
     console.error('Error al cargar producción:', error)

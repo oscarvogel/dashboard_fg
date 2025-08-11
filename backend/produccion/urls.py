@@ -1,5 +1,5 @@
 from django.urls import path, include
-from .views import CargasCombustibleView, EmpleadoViewSet, EquiposPorUNView, FiltrosCombustibleView, FiltrosDinamicosView, LoginEmpleadoView, ProduccionDashboardView, ProduccionOperadorView, RegistrosEmpleadoViewSet, ResumenOperacionalView
+from .views import CargasCombustibleView, EmpleadoViewSet, EquiposPorUNView, FiltrosCombustibleView, FiltrosDinamicosView, HorasNoOperativasDashboardView, LoginEmpleadoView, ProduccionDashboardView, ProduccionOperadorView, RegistrosEmpleadoViewSet, ResumenOperacionalView
 from rest_framework.routers import DefaultRouter
 
 router = DefaultRouter()
@@ -16,5 +16,6 @@ urlpatterns = [
     path('resumen-operacional/', ResumenOperacionalView.as_view(), name='resumen-operacional'),
     path('filtros-combustible/', FiltrosCombustibleView.as_view(), name='filtros-combustible'),
     path('equipos-por-un/', EquiposPorUNView.as_view(), name='equipos-por-un'),
-    path('cargas-combustible/', CargasCombustibleView.as_view(), name='cargas-combustible'),    
+    path('cargas-combustible/', CargasCombustibleView.as_view(), name='cargas-combustible'),   
+    path('horas-no-operativas/', HorasNoOperativasDashboardView.as_view(), name='horas-no-operativas'),     
 ]
