@@ -8,13 +8,15 @@ import api from '../services/api'
 const filtros = ref({
   un: '',
   fecha_inicio: '',
-  fecha_fin: ''
+  fecha_fin: '',
+  movil_id: ''
 })
 
 const resultsGrafico = ref([])
 const datosTabla = ref([])
 const datosFiltrados = ref([]) // Para tabla filtrada
 const unidadesDisponibles = ref([])
+const equipos = ref([])
 const loading = ref(false)
 
 // Filtro por motivo (desde clic en gráfico)
@@ -27,9 +29,11 @@ hace30Dias.setDate(hoy.getDate() - 30)
 
 const generarColores = (n) => {
   const colors = []
+  const baseHue = 120; // Green hue
+  const saturation = 70; // Consistent saturation
   for (let i = 0; i < n; i++) {
-    const hue = (i * 137.5) % 360
-    colors.push(`hsl(${hue}, 70%, 60%)`)
+    const lightness = 40 + (i * 10) % 40; // Vary lightness for different shades
+    colors.push(`hsl(${baseHue}, ${saturation}%, ${lightness}%)`)
   }
   return colors
 }
@@ -79,7 +83,7 @@ const updateChartData = () => {
   if (resultsGrafico.value.length === 0) {
     chartData.value = {
       labels: ['Sin datos'],
-      datasets: [{ data: [1], backgroundColor: ['#9ca3af'] }]
+      datasets: [{ data: [1], backgroundColor: ['#d1d5db'] }] // bg-gray-300
     }
     return
   }
@@ -115,7 +119,8 @@ const fetchData = async () => {
       params: {
         un: filtros.value.un || undefined,
         fecha_inicio: filtros.value.fecha_inicio,
-        fecha_fin: filtros.value.fecha_fin
+        fecha_fin: filtros.value.fecha_fin,
+        movil_id: filtros.value.movil_id || undefined
       }
     })
 
@@ -132,6 +137,25 @@ const fetchData = async () => {
   }
 }
 
+// Cargar equipos según fechas y, opcionalmente, unidad seleccionada
+const cargarEquipos = async () => {
+  equipos.value = []
+  if (!filtros.value.fecha_inicio || !filtros.value.fecha_fin) return
+  try {
+    const params = {
+      start_date: filtros.value.fecha_inicio,
+      end_date: filtros.value.fecha_fin
+    }
+    // Si hay una unidad seleccionada, solicitar equipos por esa unidad.
+    // Si no hay unidad (valor '' -> "Todas"), no enviamos "un_id" para obtener todos
+    if (filtros.value.un) params.un_id = filtros.value.un
+    const response = await api.get('/api/equipos-por-un/', { params })
+    equipos.value = response.data.equipos || []
+  } catch (error) {
+    console.error('Error al cargar equipos:', error)
+  }
+}
+
 // Aplicar filtros principales
 const aplicarFiltros = () => {
   filtroMotivo.value = '' // resetear filtro de gráfico
@@ -144,6 +168,7 @@ const exportarAExcel = () => {
     const ws = xlsx.utils.json_to_sheet(
       datosFiltrados.value.map(row => ({
         'Unidad de Negocio': row.un,
+        'Equipo': row.equipo || row.movil_detalle || '-',
         'Fecha': row.fecha,
         'Horas No Operativas': row.hrs_no_operativas,
         'Motivo': row.motivo,
@@ -161,6 +186,7 @@ const exportarAExcel = () => {
 // Hooks
 onMounted(() => {
   fetchData()
+  cargarEquipos()
 })
 
 watch(resultsGrafico, updateChartData, { immediate: true })
@@ -169,18 +195,18 @@ watch(filtroMotivo, aplicarFiltroTabla)
 </script>
 
 <template>
-  <div class="p-6 bg-gray-50 min-h-screen">
+  <div class="p-6 bg-primary-50 min-h-screen font-sans">
     <!-- Título -->
     <h1 class="text-2xl font-bold text-gray-800 mb-6">Dashboard: Horas No Operativas</h1>
 
     <!-- Filtros -->
-    <div class="bg-white p-6 rounded-lg shadow-md mb-6 grid grid-cols-1 md:grid-cols-3 gap-4">
+    <div class="bg-white p-6 rounded-lg shadow-md mb-6 grid grid-cols-1 md:grid-cols-4 gap-4">
       <div>
         <label class="block text-sm font-medium text-gray-700 mb-1">Unidad de Negocio</label>
         <select
           v-model="filtros.un"
-          @change="aplicarFiltros"
-          class="w-full border border-gray-300 rounded-md shadow-sm p-2 focus:ring-blue-500 focus:border-blue-500"
+          @change="() => { aplicarFiltros(); cargarEquipos(); }"
+          class="w-full border border-gray-300 rounded-md shadow-sm p-2 focus:ring-primary-500 focus:border-primary-500"
         >
           <option value="">Todas las unidades</option>
           <option
@@ -194,12 +220,26 @@ watch(filtroMotivo, aplicarFiltroTabla)
       </div>
 
       <div>
+        <label class="block text-sm font-medium text-gray-700 mb-1">Equipo</label>
+        <select
+          v-model="filtros.movil_id"
+          @change="aplicarFiltros"
+          class="w-full border border-gray-300 rounded-md shadow-sm p-2 focus:ring-primary-500 focus:border-primary-500"
+        >
+          <option value="">Todos los equipos</option>
+          <option v-for="eq in equipos" :key="eq.id" :value="eq.id">
+            {{ eq.detalle }} ({{ eq.patente }})
+          </option>
+        </select>
+      </div>
+
+      <div>
         <label class="block text-sm font-medium text-gray-700 mb-1">Fecha Inicio</label>
         <input
           v-model="filtros.fecha_inicio"
           type="date"
-          @change="aplicarFiltros"
-          class="w-full border border-gray-300 rounded-md shadow-sm p-2 focus:ring-blue-500 focus:border-blue-500"
+          @change="() => { aplicarFiltros(); cargarEquipos(); }"
+          class="w-full border border-gray-300 rounded-md shadow-sm p-2 focus:ring-primary-500 focus:border-primary-500"
         />
       </div>
 
@@ -208,8 +248,8 @@ watch(filtroMotivo, aplicarFiltroTabla)
         <input
           v-model="filtros.fecha_fin"
           type="date"
-          @change="aplicarFiltros"
-          class="w-full border border-gray-300 rounded-md shadow-sm p-2 focus:ring-blue-500 focus:border-blue-500"
+          @change="() => { aplicarFiltros(); cargarEquipos(); }"
+          class="w-full border border-gray-300 rounded-md shadow-sm p-2 focus:ring-primary-500 focus:border-primary-500"
         />
       </div>
     </div>
@@ -219,7 +259,7 @@ watch(filtroMotivo, aplicarFiltroTabla)
       <button
         @click="aplicarFiltros"
         :disabled="loading"
-        class="px-6 py-2 bg-blue-600 hover:bg-blue-700 disabled:bg-gray-400 text-white font-medium rounded-md transition"
+        class="px-6 py-2 bg-primary-600 hover:bg-primary-700 disabled:bg-primary-300 text-white font-medium rounded-md transition"
       >
         {{ loading ? 'Cargando...' : 'Actualizar' }}
       </button>
@@ -227,7 +267,7 @@ watch(filtroMotivo, aplicarFiltroTabla)
       <button
         @click="exportarAExcel"
         :disabled="loading || datosFiltrados.length === 0"
-        class="px-6 py-2 bg-green-600 hover:bg-green-700 disabled:bg-gray-400 text-white font-medium rounded-md transition"
+        class="px-6 py-2 bg-primary-600 hover:bg-primary-700 disabled:bg-primary-300 text-white font-medium rounded-md transition"
       >
         Exportar a Excel
       </button>
@@ -253,15 +293,16 @@ watch(filtroMotivo, aplicarFiltroTabla)
     <div class="bg-white p-6 rounded-lg shadow-md">
       <h2 class="text-lg font-semibold text-gray-800 mb-4">
         Detalle de Registros
-        <span v-if="filtroMotivo" class="text-sm font-normal text-blue-600">(Filtrado por: "{{ filtroMotivo }}")</span>
+        <span v-if="filtroMotivo" class="text-sm font-normal text-primary-600">(Filtrado por: "{{ filtroMotivo }}")</span>
       </h2>
       <div class="overflow-x-auto">
         <table class="min-w-full divide-y divide-gray-200">
           <thead class="bg-gray-50">
             <tr>
-              <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">UN</th>
-              <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Fecha</th>
-              <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">HNO</th>
+                <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">UN</th>
+                <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Equipo</th>
+                <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Fecha</th>
+                <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">HNO</th>
               <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Motivo</th>
               <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Observaciones</th>
             </tr>
@@ -269,6 +310,7 @@ watch(filtroMotivo, aplicarFiltroTabla)
           <tbody class="bg-white divide-y divide-gray-200">
             <tr v-for="(item, index) in datosFiltrados" :key="index">
               <td class="px-6 py-4 text-sm text-gray-900">{{ item.un }}</td>
+              <td class="px-6 py-4 text-sm text-gray-800">{{ item.equipo || item.movil_detalle || '-' }}</td>
               <td class="px-6 py-4 text-sm text-gray-700">{{ item.fecha }}</td>
               <td class="px-6 py-4 text-sm font-medium text-gray-900">{{ item.hrs_no_operativas }}</td>
               <td class="px-6 py-4 text-sm text-gray-800 font-medium">{{ item.motivo }}</td>

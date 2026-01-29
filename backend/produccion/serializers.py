@@ -51,6 +51,7 @@ class RegistroProduccionDiarioSerializer(serializers.ModelSerializer):
 class RegistroProduccionSerializer(serializers.ModelSerializer):
     equipo_patente = serializers.CharField(source='cod_equipo.patente', read_only=True)
     equipo_detalle = serializers.CharField(source='cod_equipo.detalle', read_only=True)
+    unidad_negocio_detalle = serializers.CharField(source='cod_un.nombre', read_only=True)
 
     class Meta:
         model = RegistroProduccion
@@ -75,6 +76,11 @@ class RegistroProduccionSerializer(serializers.ModelSerializer):
             'equipo_patente',
             'equipo_detalle',
             'stock_abc',
+            'hr_disposicion',
+            'acta',
+            'aceite_hidraulico',
+            'unidad_negocio_detalle',
+            'remito_bitren',
         ]        
         
 class CargaCombustibleSerializer(serializers.ModelSerializer):

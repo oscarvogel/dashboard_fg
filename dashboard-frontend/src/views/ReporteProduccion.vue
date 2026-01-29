@@ -1,5 +1,5 @@
 <template>
-  <div class="min-h-screen bg-gray-50 py-8 px-4 sm:px-6 lg:px-8">
+  <div class="min-h-screen bg-primary-50 py-8 px-4 sm:px-6 lg:px-8">
     <div class="max-w-7xl mx-auto">
       <!-- Título -->
       <h1 class="text-3xl font-extrabold text-gray-900 mb-8 text-center">Reporte de Producción</h1>
@@ -13,7 +13,7 @@
             <input
               v-model="startDate"
               type="date"
-              class="w-full border-gray-300 rounded-lg shadow-sm focus:ring-blue-500 focus:border-blue-500"
+              class="w-full border-gray-300 rounded-lg shadow-sm focus:ring-primary-500 focus:border-primary-500"
             />
           </div>
 
@@ -23,7 +23,7 @@
             <input
               v-model="endDate"
               type="date"
-              class="w-full border-gray-300 rounded-lg shadow-sm focus:ring-blue-500 focus:border-blue-500"
+              class="w-full border-gray-300 rounded-lg shadow-sm focus:ring-primary-500 focus:border-primary-500"
             />
           </div>
 
@@ -32,8 +32,8 @@
             <label class="block text-sm font-medium text-gray-700 mb-2">UN</label>
             <select
               v-model="selectedUN"
-              @change="loadEquipos"
-              class="w-full border-gray-300 rounded-lg shadow-sm focus:ring-indigo-500 focus:border-indigo-500"
+              @change="onUNChange"
+              class="w-full border-gray-300 rounded-lg shadow-sm focus:ring-primary-500 focus:border-primary-500"
             >
               <option value="">-- Seleccionar UN --</option>
               <option v-for="un in unidades" :key="un.id" :value="un.id">{{ un.nombre }}</option>
@@ -46,7 +46,7 @@
             <select
               v-model="selectedEquipo"
               @change="loadCampos"
-              class="w-full border-gray-300 rounded-lg shadow-sm focus:ring-green-500 focus:border-green-500"
+              class="w-full border-gray-300 rounded-lg shadow-sm focus:ring-primary-500 focus:border-primary-500"
             >
               <option value="">-- Seleccionar Equipo --</option>
               <option v-for="eq in equipos" :key="eq" :value="eq">{{ eq }}</option>
@@ -72,7 +72,7 @@
               :value="campo.value"
               v-model="selectedCampos"
               type="checkbox"
-              class="h-4 w-4 text-blue-600 focus:ring-blue-500 border-gray-300 rounded"
+              class="h-4 w-4 text-primary-600 focus:ring-primary-500 border-gray-300 rounded"
             />
             <label :for="'campo-' + campo.value" class="ml-2 text-sm text-gray-700">
               {{ campo.label }}
@@ -88,7 +88,7 @@
           <h3 class="text-lg font-semibold text-gray-800">Datos de Producción</h3>
           <button
             @click="exportarExcel"
-            class="flex items-center space-x-1 bg-emerald-600 hover:bg-emerald-700 text-white px-4 py-2 rounded-lg text-sm font-medium transition duration-200 shadow-sm"
+            class="flex items-center space-x-1 bg-primary-600 hover:bg-primary-700 text-white px-4 py-2 rounded-lg text-sm font-medium transition duration-200 shadow-sm"
           >
             <svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
               <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 10v6m0 0l-3-3m3 3l3-3m2 7H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
@@ -119,8 +119,8 @@
             <tbody class="bg-white divide-y divide-gray-200">
               <tr
                 v-for="fila in tabla"
-                :key="fila.fecha"
-                class="hover:bg-gray-50 transition duration-150"
+                :key="fila.id || fila.fecha"
+                class="hover:bg-primary-50 transition duration-150"
               >
                 <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-900">
                   {{ formatDate(fila.fecha) }}
@@ -172,7 +172,7 @@ export default {
         const validValues = [
             'operacion', 'operador', 'equipo', 'hr_inicio', 'hr_fin', 'm3',
             'tn_despachadas', 'produccion', 'unidad_produccion', 'hrs_no_op',
-            'plantas', 'combustible', 'aceite_cadena', 'predio', 'stock_abc', 'acta'
+            'plantas', 'combustible', 'aceite_cadena', 'aceite_hidraulico', 'predio', 'stock_abc', 'acta'
         ];
         selectedCampos = parsed.filter(campo => validValues.includes(campo));
         } catch (e) {
@@ -212,6 +212,7 @@ export default {
         { value: 'plantas', label: 'Plantas' },
         { value: 'combustible', label: 'Combustible (L)' },
         { value: 'aceite_cadena', label: 'Aceite Cadena (L)' },
+        { value: 'aceite_hidraulico', label: 'Aceite Hidráulico (L)' },
         { value: 'predio', label: 'Predio' },
         { value: 'stock_abc', label: 'Stock ABC' },
         { value: 'acta', label: 'Acta' },
@@ -238,7 +239,6 @@ export default {
           start_date: this.startDate,
           end_date: this.endDate,
         });
-        if (this.selectedUN) params.append('cod_un', this.selectedUN);
 
         const res = await api.get('/api/filtros/', { params });
         const data = res.data;
@@ -253,17 +253,25 @@ export default {
           this.tabla = [];
           this.tablaOriginal = [];
           this.loaded = false;
-        }
-
-        // Actualizar equipos disponibles
-        this.equipos = data.equipos || [];
-
-        // Validar si el equipo seleccionado sigue estando disponible
-        if (this.selectedEquipo && !this.equipos.includes(this.selectedEquipo)) {
-          this.selectedEquipo = '';
-          this.tabla = [];
-          this.tablaOriginal = [];
-          this.loaded = false;
+        } else if (this.selectedUN) {
+          // Si hay UN seleccionada, cargar sus equipos filtrados
+          await this.loadEquiposByUN();
+          
+          // Validar si el equipo seleccionado sigue estando disponible en esta UN
+          if (this.selectedEquipo && !this.equipos.includes(this.selectedEquipo)) {
+            this.selectedEquipo = '';
+            this.tabla = [];
+            this.tablaOriginal = [];
+            this.loaded = false;
+          }
+          
+          // Cargar datos de la UN si no hay equipo específico seleccionado
+          if (!this.selectedEquipo) {
+            await this.loadDatosUN();
+          }
+        } else {
+          // Si no hay UN seleccionada, cargar todos los equipos disponibles
+          this.equipos = data.equipos || [];
         }
 
       } catch (error) {
@@ -276,6 +284,99 @@ export default {
         this.loaded = false;
       } finally {
         this.loading = false;
+      }
+    },
+
+    // Cargar todos los datos de la UN seleccionada
+    async loadDatosUN() {
+      if (!this.selectedUN || !this.startDate || !this.endDate) {
+        return;
+      }
+
+      this.loading = true; // Agregar indicador de carga
+      try {
+        const params = new URLSearchParams({
+          start_date: this.startDate,
+          end_date: this.endDate,
+          cod_un: this.selectedUN,  // ✅ CORREGIDO: Cambiar 'un' por 'cod_un'
+        });
+
+        console.log('Cargando datos para UN:', this.selectedUN, 'Parámetros:', params.toString());
+
+        const res = await api.get('/api/produccion-dashboard/', { params });
+        const registros = res.data.results || [];
+
+        console.log(`Se obtuvieron ${registros.length} registros de la UN`);
+        console.log('Primeros 3 registros:', registros.slice(0, 3));
+
+        this.tablaOriginal = registros;
+        console.log('tablaOriginal asignada:', this.tablaOriginal.length);
+        
+        this.rebuildTabla();
+        console.log('Tabla final después de rebuild:', this.tabla.length);
+        
+        this.loaded = true;
+      } catch (error) {
+        console.error('Error al cargar datos de la UN:', error);
+        this.tabla = [];
+        this.tablaOriginal = [];
+        this.loaded = false;
+      } finally {
+        this.loading = false; // Finalizar indicador de carga
+      }
+    },
+
+    // Método llamado cuando cambia la UN
+    async onUNChange() {
+      // Limpiar equipo seleccionado
+      this.selectedEquipo = '';
+      
+      if (!this.selectedUN) {
+        this.equipos = [];
+        this.tabla = [];
+        this.tablaOriginal = [];
+        this.loaded = false;
+        return;
+      }
+
+      // Cargar equipos filtrados por la UN seleccionada
+      await this.loadEquiposByUN();
+      
+      // Cargar datos automáticamente cuando se selecciona una UN
+      await this.loadDatosUN();
+    },
+
+    // Cargar equipos filtrados por unidad de negocio
+    async loadEquiposByUN() {
+      if (!this.selectedUN || !this.startDate || !this.endDate) {
+        this.equipos = [];
+        return;
+      }
+
+      try {
+        const params = new URLSearchParams({
+          start_date: this.startDate,
+          end_date: this.endDate,
+          cod_un: this.selectedUN,
+        });
+
+        const res = await api.get('/api/filtros/', { params });
+        const data = res.data;
+
+        // Cargar solo los equipos de esta UN específica
+        this.equipos = data.equipos || [];
+        
+      } catch (error) {
+        console.error('Error al cargar equipos de la UN:', error);
+        this.equipos = [];
+      }
+    },
+
+    // Cargar equipos (mantiene la funcionalidad original para el filtro de equipo)
+    async loadEquipos() {
+      // Cargar equipos cuando se selecciona desde el dropdown de equipos
+      if (this.selectedUN) {
+        await this.loadEquiposByUN();
       }
     },
 
@@ -293,7 +394,7 @@ export default {
         const params = new URLSearchParams({
           start_date: this.startDate,
           end_date: this.endDate,
-          un: this.selectedUN,
+          cod_un: this.selectedUN,  // ✅ CORREGIDO: Cambiar 'un' por 'cod_un'
           detalle_equipo: this.selectedEquipo,
         });
 
@@ -320,18 +421,37 @@ export default {
         return;
       }
 
-      const agrupado = {};
-      this.tablaOriginal.forEach((reg) => {
-        const fecha = reg.fecha;
-        if (!agrupado[fecha]) {
-          agrupado[fecha] = { fecha };
-        }
+      console.log(`Reconstruyendo tabla con ${this.tablaOriginal.length} registros originales`);
+
+      // ✅ CORREGIDO: No agrupar por fecha, mostrar todos los registros
+      this.tabla = this.tablaOriginal.map((reg, index) => {
+        const filaTabla = { 
+          fecha: reg.fecha,
+          id: reg.id || index // Agregar ID único para cada fila
+        };
+        
+        // Agregar solo los campos seleccionados
         this.selectedCampos.forEach((campo) => {
-          agrupado[fecha][campo] = reg[campo] ?? '–';
+          filaTabla[campo] = reg[campo] ?? '–';
         });
+        
+        return filaTabla;
       });
 
-      this.tabla = Object.values(agrupado).sort((a, b) => a.fecha.localeCompare(b.fecha));
+      // Ordenar por fecha (y opcionalmente por otro campo como equipo)
+      this.tabla.sort((a, b) => {
+        const fechaCompare = a.fecha.localeCompare(b.fecha);
+        if (fechaCompare !== 0) return fechaCompare;
+        
+        // Si las fechas son iguales, ordenar por equipo si está disponible
+        if (a.equipo && b.equipo) {
+          return a.equipo.localeCompare(b.equipo);
+        }
+        
+        return 0;
+      });
+
+      console.log(`Tabla reconstruida con ${this.tabla.length} filas`);
     },
 
     // Formatear fecha de YYYY-MM-DD a DD/MM/YYYY
@@ -385,11 +505,11 @@ export default {
         this.resetFilters();
       }
     },
-    selectedUN() {
-      if (this.startDate && this.endDate) {
-        this.loadFiltros();
-      }
-    },
+    // selectedUN() {
+    //   if (this.startDate && this.endDate) {
+    //     this.loadFiltros();
+    //   }
+    // },
     // Reconstruir tabla cuando se cambien los campos seleccionados
     selectedCampos: {
       handler() {

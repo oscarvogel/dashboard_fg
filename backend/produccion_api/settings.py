@@ -31,7 +31,7 @@ SECRET_KEY = os.environ['SECRET_KEY']
 # SECURITY WARNING: don't run with debug turned on in production!
 DEBUG = os.environ.get('DEBUG', 'False') == 'True'
 
-ALLOWED_HOSTS = ['66.97.47.156', '127.0.0.1', 'api.fgsa.ar', 'dashboard.fgsa.ar', 'localhost', ]
+ALLOWED_HOSTS = ['66.97.47.156', '127.0.0.1', 'api.fgsa.ar', 'dashboard.fgsa.ar', 'localhost', 'localhost:3000']
 # Cargar variables de entorno
 
 # Application definition
@@ -47,6 +47,7 @@ INSTALLED_APPS = [
     'django_filters',
     'rest_framework',
     'produccion',
+    'mantenimiento',
 ]
 
 MIDDLEWARE = [

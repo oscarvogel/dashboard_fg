@@ -1,6 +1,6 @@
 <!-- src/views/ResumenOperacional.vue -->
 <template>
-  <div class="flex flex-col h-screen bg-gray-50">
+  <div class="flex flex-col h-screen bg-primary-50">
     <!-- Filtros -->
     <section class="bg-white p-6 border-b border-gray-200">
       <div class="grid grid-cols-1 md:grid-cols-4 gap-4">
@@ -46,14 +46,25 @@
           </select>
         </div>
 
-        <!-- Botón buscar -->
-        <div class="flex items-end">
+        <!-- Botones buscar y exportar -->
+        <div class="flex items-end gap-2">
           <button
             @click="cargarDatos"
             :disabled="loading"
-            class="w-full bg-blue-600 hover:bg-blue-700 disabled:bg-blue-400 text-white font-medium py-2 px-4 rounded-md"
+            class="flex-1 bg-primary-600 hover:bg-primary-700 disabled:bg-primary-400 text-white font-medium py-2 px-4 rounded-md"
           >
             {{ loading ? 'Cargando...' : 'Buscar' }}
+          </button>
+          <button
+            @click="exportarExcel"
+            :disabled="loading || (datosDiarios.length === 0 && datosMes.length === 0)"
+            class="bg-green-600 hover:bg-green-700 disabled:bg-gray-400 text-white font-medium py-2 px-4 rounded-md flex items-center gap-2"
+            title="Exportar a Excel"
+          >
+            <svg class="w-4 h-4" fill="currentColor" viewBox="0 0 20 20">
+              <path d="M3 17a1 1 0 011-1h12a1 1 0 011 1v2a1 1 0 01-1 1H4a1 1 0 01-1-1v-2zM3 7a1 1 0 011-1h12a1 1 0 011 1v6a1 1 0 01-1 1H4a1 1 0 01-1-1V7zM9 9a1 1 0 000 2v3a1 1 0 001 1h1a1 1 0 100-2v-3a1 1 0 00-1-1H9z"/>
+            </svg>
+            Excel
           </button>
         </div>
       </div>
@@ -105,7 +116,7 @@
               <td class="border border-gray-300 px-4 py-2 text-sm text-center">{{ calcular(fila.toneladas / fila.viajes) }}</td>
             </tr>
             <!-- Fila de Totales -->
-            <tr v-if="datosDiarios.length > 0" class="bg-blue-50 font-medium">
+            <tr v-if="datosDiarios.length > 0" class="bg-primary-50 font-medium">
                 <td class="border border-gray-300 px-4 py-2 text-sm">Total</td>
                 <td class="border border-gray-300 px-4 py-2 text-sm text-center">{{ redondear(totalDiario.horas) }}</td>
                 <td class="border border-gray-300 px-4 py-2 text-sm text-center">{{ redondear(totalDiario.arboles) }}</td>
@@ -200,7 +211,7 @@
 
       <!-- Cargando -->
       <div v-if="loading" class="flex justify-center py-6">
-        <svg class="animate-spin h-6 w-6 text-blue-600" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
+        <svg class="animate-spin h-6 w-6 text-primary-600" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
           <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle>
           <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
         </svg>
@@ -212,6 +223,7 @@
 <script setup>
 import { ref, computed, onMounted } from 'vue'
 import { useRouter } from 'vue-router'
+import * as XLSX from 'xlsx'
 import api from '../services/api'
 
 const router = useRouter()
@@ -321,6 +333,139 @@ const calcularTotales = (filas) => {
   return total
 }
 
+// Función para exportar a Excel
+const exportarExcel = () => {
+  const workbook = XLSX.utils.book_new()
+  
+  // Obtener nombre de la unidad seleccionada
+  const unidadNombre = unSeleccionada.value ? 
+    unidadesDisponibles.value.find(un => un.id == unSeleccionada.value)?.nombre || 'Todas' : 
+    'Todas'
+  
+  // Información del archivo
+  const fechaExport = new Date().toLocaleDateString('es-CL')
+  const periodo = mesAno.value
+  const diaEspecifico = dia.value ? new Date(dia.value).toLocaleDateString('es-CL') : 'Todo el mes'
+  
+  // Datos diarios (si existen)
+  if (datosDiarios.value.length > 0) {
+    const datosDiariosParaExcel = datosDiarios.value.map(fila => ({
+      'Máquina': fila.maquina,
+      'Horas': parseFloat(fila.horas) || 0,
+      'N° árboles': parseFloat(fila.arboles) || 0,
+      'm³ elaborado': parseFloat(fila.m3) || 0,
+      'Toneladas carga': parseFloat(fila.toneladas) || 0,
+      'Viajes': parseFloat(fila.viajes) || 0,
+      'Combustible (L)': parseFloat(fila.combustible) || 0,
+      'Lubricante (L)': parseFloat(fila.lubricante) || 0,
+      'm³/árbol': calcularValor(fila.m3 / fila.arboles),
+      'árbol/hora': calcularValor(fila.arboles / fila.horas),
+      'm³/hora': calcularValor(fila.m3 / fila.horas),
+      'ton/hora': calcularValor(fila.toneladas / fila.horas),
+      'litros/hora': calcularValor(fila.combustible / fila.horas),
+      'litros/m³': calcularValor(fila.combustible / fila.m3),
+      'ton/litro': calcularValor(fila.toneladas / fila.combustible),
+      'ton/viaje': calcularValor(fila.toneladas / fila.viajes)
+    }))
+    
+    // Agregar fila de totales
+    datosDiariosParaExcel.push({
+      'Máquina': 'TOTAL',
+      'Horas': totalDiario.value.horas,
+      'N° árboles': totalDiario.value.arboles,
+      'm³ elaborado': totalDiario.value.m3,
+      'Toneladas carga': totalDiario.value.toneladas,
+      'Viajes': totalDiario.value.viajes,
+      'Combustible (L)': totalDiario.value.combustible,
+      'Lubricante (L)': totalDiario.value.lubricante,
+      'm³/árbol': calcularValor(totalDiario.value.m3 / totalDiario.value.arboles),
+      'árbol/hora': calcularValor(totalDiario.value.arboles / totalDiario.value.horas),
+      'm³/hora': calcularValor(totalDiario.value.m3 / totalDiario.value.horas),
+      'ton/hora': calcularValor(totalDiario.value.toneladas / totalDiario.value.horas),
+      'litros/hora': calcularValor(totalDiario.value.combustible / totalDiario.value.horas),
+      'litros/m³': calcularValor(totalDiario.value.combustible / totalDiario.value.m3),
+      'ton/litro': calcularValor(totalDiario.value.toneladas / totalDiario.value.combustible),
+      'ton/viaje': calcularValor(totalDiario.value.toneladas / totalDiario.value.viajes)
+    })
+    
+    const wsDiario = XLSX.utils.json_to_sheet(datosDiariosParaExcel)
+    XLSX.utils.book_append_sheet(workbook, wsDiario, 'Datos del Día')
+  }
+  
+  // Datos mensuales (si existen)
+  if (datosMes.value.length > 0) {
+    const datosMesParaExcel = datosMes.value.map(fila => ({
+      'Máquina': fila.maquina,
+      'Horas': parseFloat(fila.horas) || 0,
+      'N° árboles': parseFloat(fila.arboles) || 0,
+      'm³ elaborado': parseFloat(fila.m3) || 0,
+      'Toneladas carga': parseFloat(fila.toneladas) || 0,
+      'Viajes': parseFloat(fila.viajes) || 0,
+      'Combustible (L)': parseFloat(fila.combustible) || 0,
+      'Lubricante (L)': parseFloat(fila.lubricante) || 0,
+      'm³/árbol': calcularValor(fila.m3 / fila.arboles),
+      'árbol/hora': calcularValor(fila.arboles / fila.horas),
+      'm³/hora': calcularValor(fila.m3 / fila.horas),
+      'ton/hora': calcularValor(fila.toneladas / fila.horas),
+      'litros/hora': calcularValor(fila.combustible / fila.horas),
+      'litros/m³': calcularValor(fila.combustible / fila.m3),
+      'ton/litro': calcularValor(fila.toneladas / fila.combustible),
+      'ton/viaje': calcularValor(fila.toneladas / fila.viajes)
+    }))
+    
+    // Agregar fila de totales
+    datosMesParaExcel.push({
+      'Máquina': 'TOTAL',
+      'Horas': totalMes.value.horas,
+      'N° árboles': totalMes.value.arboles,
+      'm³ elaborado': totalMes.value.m3,
+      'Toneladas carga': totalMes.value.toneladas,
+      'Viajes': totalMes.value.viajes,
+      'Combustible (L)': totalMes.value.combustible,
+      'Lubricante (L)': totalMes.value.lubricante,
+      'm³/árbol': calcularValor(totalMes.value.m3 / totalMes.value.arboles),
+      'árbol/hora': calcularValor(totalMes.value.arboles / totalMes.value.horas),
+      'm³/hora': calcularValor(totalMes.value.m3 / totalMes.value.horas),
+      'ton/hora': calcularValor(totalMes.value.toneladas / totalMes.value.horas),
+      'litros/hora': calcularValor(totalMes.value.combustible / totalMes.value.horas),
+      'litros/m³': calcularValor(totalMes.value.combustible / totalMes.value.m3),
+      'ton/litro': calcularValor(totalMes.value.toneladas / totalMes.value.combustible),
+      'ton/viaje': calcularValor(totalMes.value.toneladas / totalMes.value.viajes)
+    })
+    
+    const wsMes = XLSX.utils.json_to_sheet(datosMesParaExcel)
+    XLSX.utils.book_append_sheet(workbook, wsMes, 'Acumulado del Mes')
+  }
+  
+  // Crear hoja de información
+  const infoData = [
+    ['RESUMEN OPERACIONAL'],
+    [''],
+    ['Período:', periodo],
+    ['Día específico:', diaEspecifico],
+    ['Unidad de Negocio:', unidadNombre],
+    ['Fecha de exportación:', fechaExport],
+    [''],
+    ['Este archivo contiene:'],
+    ...(datosDiarios.value.length > 0 ? [['- Datos del día seleccionado']] : []),
+    ...(datosMes.value.length > 0 ? [['- Acumulado del mes']] : [])
+  ]
+  
+  const wsInfo = XLSX.utils.aoa_to_sheet(infoData)
+  XLSX.utils.book_append_sheet(workbook, wsInfo, 'Información', 0)
+  
+  // Generar nombre del archivo
+  const nombreArchivo = `resumen_operacional_${periodo}${dia.value ? '_' + dia.value : ''}_${unidadNombre.replace(/\s+/g, '_')}.xlsx`
+  
+  // Descargar archivo
+  XLSX.writeFile(workbook, nombreArchivo)
+}
+
+// Función auxiliar para calcular valores numéricos
+const calcularValor = (val) => {
+  if (typeof val !== 'number' || isNaN(val) || !isFinite(val)) return 0
+  return parseFloat(val.toFixed(2))
+}
 
 // Funciones de utilidad
 const redondear = (val) => {

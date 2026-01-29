@@ -1,4 +1,7 @@
 import calendar
+from rest_framework.decorators import api_view
+from django.http import JsonResponse
+
 from django.shortcuts import render
 from rest_framework_simplejwt.tokens import RefreshToken
 from rest_framework.permissions import IsAuthenticated
@@ -6,7 +9,8 @@ from django_filters import rest_framework as filters
 import django_filters as df                            # django-filter
 from django.contrib.auth import authenticate
 
-from django.db.models import Q
+from django.db.models import Q, Sum
+from django.db import models
 from django.contrib.auth.hashers import check_password as django_check_password
 
 from django.db.models.functions import Trim
@@ -199,7 +203,8 @@ class FiltrosDinamicosView(APIView):
     def get(self, request):
         start_date = request.GET.get('start_date')
         end_date = request.GET.get('end_date')
-        cod_un = request.GET.get('cod_un')  # Ahora es ID
+        cod_un = request.GET.get('cod_un')  # Puede ser múltiple: "1,2,3"
+        operacion = request.GET.get('operacion')  # Puede ser múltiple: "VOLTEO,EXTRACCION"
         acta = request.GET.get('acta')
         predio = request.GET.get('predio')
 
@@ -208,11 +213,23 @@ class FiltrosDinamicosView(APIView):
             filtro &= Q(fecha__gte=start_date)
         if end_date:
             filtro &= Q(fecha__lte=end_date)
+        
+        # Manejo de múltiples unidades de negocio
         if cod_un:
             try:
-                filtro &= Q(cod_un_id=int(cod_un))
+                # Dividir por comas y convertir a enteros
+                cod_un_ids = [int(x.strip()) for x in cod_un.split(',') if x.strip()]
+                if cod_un_ids:
+                    filtro &= Q(cod_un_id__in=cod_un_ids)
             except (ValueError, TypeError):
-                pass  # Ignorar si no es un número válido
+                pass  # Ignorar si no son números válidos
+        
+        # Manejo de múltiples operaciones
+        if operacion:
+            operaciones = [x.strip() for x in operacion.split(',') if x.strip()]
+            if operaciones:
+                filtro &= Q(operacion__in=operaciones)
+        
         if acta:
             filtro &= Q(acta=acta)
 
@@ -537,8 +554,8 @@ class ProduccionDashboardView(APIView):
         # =======================
         start_date_str = request.GET.get('start_date')
         end_date_str = request.GET.get('end_date')
-        cod_un = request.GET.get('cod_un')  # Ahora es ID, no nombre
-        operacion = request.GET.get('operacion')
+        cod_un = request.GET.get('cod_un')  # Puede ser múltiple: "1,2,3"
+        operacion = request.GET.get('operacion')  # Puede ser múltiple: "VOLTEO,EXTRACCION"
         detalle_equipo = request.GET.get('detalle_equipo')
         operador = request.GET.get('operador')
         acta = request.GET.get('acta')
@@ -564,22 +581,29 @@ class ProduccionDashboardView(APIView):
                 status=status.HTTP_400_BAD_REQUEST
             )
 
-        # Validar y convertir cod_un a entero si existe
-        cod_un_id = None
+        # Validar y convertir cod_un múltiples a enteros si existen
+        cod_un_ids = []
         if cod_un:
             try:
-                cod_un_id = int(cod_un)
-                # Validar que exista
-                if not UnidadNegocio.objects.filter(id=cod_un_id).exists():
+                cod_un_ids = [int(x.strip()) for x in cod_un.split(',') if x.strip()]
+                # Validar que todas las unidades existan
+                existing_ids = set(UnidadNegocio.objects.filter(id__in=cod_un_ids).values_list('id', flat=True))
+                invalid_ids = set(cod_un_ids) - existing_ids
+                if invalid_ids:
                     return Response(
-                        {"error": "La unidad de negocio especificada no existe."},
+                        {"error": f"Las siguientes unidades de negocio no existen: {list(invalid_ids)}"},
                         status=status.HTTP_400_BAD_REQUEST
                     )
             except (ValueError, TypeError):
                 return Response(
-                    {"error": "El parámetro 'cod_un' debe ser un número válido."},
+                    {"error": "Los parámetros 'cod_un' deben ser números válidos separados por comas."},
                     status=status.HTTP_400_BAD_REQUEST
                 )
+        
+        # Validar operaciones múltiples
+        operaciones_list = []
+        if operacion:
+            operaciones_list = [x.strip() for x in operacion.split(',') if x.strip()]
 
         # =======================
         # 2. Filtrar registros de producción
@@ -587,10 +611,10 @@ class ProduccionDashboardView(APIView):
         filtro = Q()
         filtro &= Q(fecha__gte=start_date) & Q(fecha__lte=end_date)
 
-        if cod_un_id:
-            filtro &= Q(cod_un_id=cod_un_id)
-        if operacion:
-            filtro &= Q(operacion=operacion)
+        if cod_un_ids:
+            filtro &= Q(cod_un_id__in=cod_un_ids)
+        if operaciones_list:
+            filtro &= Q(operacion__in=operaciones_list)
         if detalle_equipo:
             filtro &= Q(cod_equipo__detalle=detalle_equipo)
         if operador:
@@ -599,22 +623,33 @@ class ProduccionDashboardView(APIView):
             filtro &= Q(acta=acta)
 
         registros = RegistroProduccion.objects.filter(filtro).select_related('cod_equipo', 'cod_un')
-        serializer = RegistroProduccionSerializer(registros, many=True)
-        results = serializer.data
-
         # =======================
         # 3. Calcular producción esperada acumulada
         # =======================
         periodo = end_date.strftime('%Y%m')
-        _, dias_del_mes = calendar.monthrange(end_date.year, end_date.month)
+        # Calcular cantidad de días laborables (lunes a viernes) en el mes de end_date
+        dias_del_mes = sum(
+            1 for d in range(1, calendar.monthrange(end_date.year, end_date.month)[1] + 1)
+            if date(end_date.year, end_date.month, d).weekday() < 5
+        )
         # proporcion = (end_date - start_date).days + 1 / dias_del_mes  # días del rango / días del mes
-        proporcion = end_date.day / dias_del_mes
+        # Calcular cantidad de días hábiles (lunes a viernes) en el rango seleccionado
+        dias_habiles_rango = sum(
+            1 for d in range((end_date - start_date).days + 1)
+            if (start_date + timedelta(days=d)).weekday() < 5
+        )
+        proporcion = dias_habiles_rango / dias_del_mes if dias_del_mes > 0 else 0
 
         queryset_mensual = ProduccionMensual.objects.filter(periodo=periodo)
-        if operacion:
-            queryset_mensual = queryset_mensual.filter(tipo_operacion=operacion)
-        if cod_un_id:
-            queryset_mensual = queryset_mensual.filter(unidad_negocio_id=cod_un_id)
+        if operaciones_list:
+            # Para múltiples operaciones, filtrar por cualquiera de ellas
+            queryset_mensual = queryset_mensual.filter(tipo_operacion__in=operaciones_list)
+        if cod_un_ids:
+            # Para múltiples unidades, filtrar por cualquiera de ellas
+            queryset_mensual = queryset_mensual.filter(unidad_negocio_id__in=cod_un_ids)
+        
+        if detalle_equipo:
+            queryset_mensual = queryset_mensual.filter(equipo__detalle=detalle_equipo)
             
         # Obtener la unidad_produccion (asumiendo que todos los registros coinciden)
         unidad_produccion = queryset_mensual.values_list('unidad_produccion', flat=True).distinct().first()
@@ -661,8 +696,8 @@ class ProduccionDashboardView(APIView):
             if detalle_equipo:
                 cargas_qs = cargas_qs.filter(equipo__detalle=detalle_equipo)
             
-            if cod_un_id:
-                cargas_qs = cargas_qs.filter(unidad_negocio_id=cod_un_id)
+            if cod_un_ids:
+                cargas_qs = cargas_qs.filter(unidad_negocio_id__in=cod_un_ids)
 
             # Agrupar por fecha
             consumos_data = cargas_qs.values('fecha').annotate(total_litros=Sum('litros'))
@@ -688,8 +723,36 @@ class ProduccionDashboardView(APIView):
         actas = list(registros_filtro.values_list('acta', flat=True).distinct().order_by('acta'))
 
         # =======================
-        # 7. Respuesta final
+        # 7. Respuesta final (con paginación)
         # =======================
+        paginator = StandarPagination()
+        page = paginator.paginate_queryset(registros, request)
+
+        if page is not None:
+            serializer = RegistroProduccionSerializer(page, many=True)
+            paginated_response = paginator.get_paginated_response(serializer.data)
+            # añadir campos adicionales a la respuesta paginada
+            extra = {
+                "produccion_esperada_acumulada": produccion_esperada_acumulada,
+                "produccion_esperada_por_dia": produccion_esperada_por_dia,
+                "unidad_produccion": unidad_produccion,
+                "consumo_combustible_total": round(total_consumo, 2),
+                "consumo_combustible_por_dia": consumo_por_dia,
+                "filtros": {
+                    "operaciones": [op for op in operaciones if op],
+                    "unidades": [u for u in unidades if u],
+                    "equipos": [e for e in equipos if e],
+                    "operadores": [o for o in operadores if o],
+                    "actas": [a for a in actas if a],
+                }
+            }
+            # paginated_response.data es un diccionario con keys count, next, previous, results
+            paginated_response.data.update(extra)
+            return paginated_response
+
+        # si no hay paginación (devuelve todo)
+        serializer = RegistroProduccionSerializer(registros, many=True)
+        results = serializer.data
         return Response({
             "results": results,
             "produccion_esperada_acumulada": produccion_esperada_acumulada,
@@ -704,7 +767,7 @@ class ProduccionDashboardView(APIView):
                 "operadores": [o for o in operadores if o],
                 "actas": [a for a in actas if a],
             }
-        }, status=status.HTTP_200_OK)		
+        }, status=status.HTTP_200_OK)
 
 class HorasNoOperativasDashboardView(APIView):
     permission_classes = [IsAuthenticated]
@@ -730,6 +793,14 @@ class HorasNoOperativasDashboardView(APIView):
         registros = registros.filter(hrs_no_operativas__gt=0)
         if cod_un_id:
             registros = registros.filter(cod_un_id=cod_un_id)
+        # Filtrar por equipo (movil_id) si se provee desde el frontend
+        movil_id = request.query_params.get('movil_id', None)
+        if movil_id:
+            try:
+                movil_id_int = int(movil_id)
+                registros = registros.filter(cod_equipo_id=movil_id_int)
+            except (ValueError, TypeError):
+                pass
 
         # === DATOS PARA EL GRÁFICO (agrupado por motivo) ===
         registros_annotated = registros.annotate(motivo_limpio=Trim(F('motivo_no_op')))
@@ -750,10 +821,12 @@ class HorasNoOperativasDashboardView(APIView):
 
         # === DATOS PARA LA TABLA (registros crudos) ===
         datos_tabla = []
-        for reg in registros.select_related('cod_un'):  # optimiza con select_related
+        for reg in registros.select_related('cod_un', 'cod_equipo'):  # optimiza con select_related
             datos_tabla.append({
                 "un": reg.cod_un.nombre if reg.cod_un else reg.UN,  # Usa nombre de UnidadNegocio si existe, sino campo UN
                 "fecha": reg.fecha.isoformat() if reg.fecha else None,
+                "equipo": reg.cod_equipo.detalle if getattr(reg, 'cod_equipo', None) else (getattr(reg, 'equipo', None) or '-'),
+                "equipo_patente": reg.cod_equipo.patente if getattr(reg, 'cod_equipo', None) else None,
                 "hrs_no_operativas": float(reg.hrs_no_operativas),
                 "motivo": reg.motivo_no_op.strip(),
                 "observaciones": reg.observaciones or '-'
@@ -770,3 +843,274 @@ class HorasNoOperativasDashboardView(APIView):
             "unidades_disponibles": unidades_disponibles,
             "total_registros": len(datos_tabla)
         }, status=status.HTTP_200_OK)
+
+@api_view(['GET'])
+def maquinas_por_frente_operador(request):
+    fecha_inicio_str = request.query_params.get('fecha_inicio')
+    fecha_fin_str = request.query_params.get('fecha_fin')
+    cod_un_id = request.query_params.get('cod_un')  # Filtro opcional por frente
+
+    if not fecha_inicio_str or not fecha_fin_str:
+        return JsonResponse(
+            {'error': 'Se requieren fecha_inicio y fecha_fin (formato: YYYY-MM-DD)'},
+            status=400
+        )
+
+    try:
+        fecha_inicio = datetime.strptime(fecha_inicio_str, '%Y-%m-%d').date()
+        fecha_fin = datetime.strptime(fecha_fin_str, '%Y-%m-%d').date()
+    except ValueError:
+        return JsonResponse({'error': 'Formato de fecha inválido. Usa YYYY-MM-DD.'}, status=400)
+
+    # Validar cod_un si se envía
+    if cod_un_id:
+        try:
+            cod_un_id = int(cod_un_id)
+        except (ValueError, TypeError):
+            return JsonResponse({'error': 'cod_un debe ser un número válido.'}, status=400)
+
+    # Construir filtro
+    filtro = Q(fecha__range=[fecha_inicio, fecha_fin])
+    if cod_un_id:
+        filtro &= Q(cod_un__id=cod_un_id)
+
+    # Obtener registros ordenados por fecha y hr_fin (descendente)
+    registros = RegistroProduccion.objects.filter(filtro).select_related(
+        'cod_equipo', 'cod_un'
+    ).only(
+        'cod_equipo__id', 'cod_equipo__patente', 'cod_equipo__detalle',
+        'cod_un__nombre', 'operador', 'fecha', 'hr_fin'
+    ).order_by('-fecha', '-hr_fin')  # Primero los más recientes
+
+    # Eliminar duplicados: guardar solo el más reciente por (equipo, frente, operador)
+    vistos = set()
+    resultado = []
+
+    for reg in registros:
+        key = (reg.cod_equipo.id, reg.cod_un.nombre if reg.cod_un else None, reg.operador)
+        if key not in vistos:
+            vistos.add(key)
+            resultado.append({
+                'cod_equipo': reg.cod_equipo.patente,         # Patente como ID
+                'detalle_equipo': reg.cod_equipo.detalle,    # Detalle del equipo (ej: "Excavadora 20T")
+                'frente': reg.cod_un.nombre if reg.cod_un else None,
+                'operador': reg.operador,
+                'ultima_fecha': reg.fecha,
+                'ultima_hr_fin': float(reg.hr_fin) if reg.hr_fin else None  # Decimal a float
+            })
+
+    return JsonResponse({'data': resultado}, safe=False)
+
+@api_view(['GET'])
+def resumen_maquinas_componentes(request):
+    """
+    Vista que genera una tabla con resumen de máquinas y componentes
+    
+    Para cada máquina muestra:
+    - Unidad de negocio (cod_un)
+    - Cantidad de cadenas utilizadas
+    - Última hora registrada (hr_fin)
+    - Cantidad de horas trabajadas (hr_fin - hr_inicio)
+    - Total de m³ producidos en el rango de fechas
+    - Rendimiento por cadena (m³/cadena)
+    - m³ desde el último cambio de espada, puntera y piñón
+    - Total de aceite de cadena utilizado
+    - Última hora registrada para cambio de espada, puntera, piñón y giro piñón
+    
+    Parámetros:
+    - fecha_inicio: fecha de inicio del rango (YYYY-MM-DD)
+    - fecha_fin: fecha fin del rango (YYYY-MM-DD)
+    
+    Solo muestra equipos que tuvieron novedades en el rango de fechas
+    """
+    fecha_inicio_str = request.query_params.get('fecha_inicio')
+    fecha_fin_str = request.query_params.get('fecha_fin')
+    cod_un = request.query_params.get('cod_un')  # Puede ser múltiple: "1,2,3"
+    operacion = request.query_params.get('operacion')  # Puede ser múltiple: "VOLTEO,EXTRACCION"
+    
+    if not fecha_inicio_str or not fecha_fin_str:
+        return JsonResponse(
+            {'error': 'Se requieren fecha_inicio y fecha_fin (formato: YYYY-MM-DD)'},
+            status=400
+        )
+    
+    try:
+        fecha_inicio = datetime.strptime(fecha_inicio_str, '%Y-%m-%d').date()
+        fecha_fin = datetime.strptime(fecha_fin_str, '%Y-%m-%d').date()
+    except ValueError:
+        return JsonResponse({'error': 'Formato de fecha inválido. Usa YYYY-MM-DD.'}, status=400)
+    
+    # Filtrar registros en el rango de fechas
+    filtro = Q(fecha__range=[fecha_inicio, fecha_fin])
+    
+    # Manejo de múltiples unidades de negocio
+    if cod_un:
+        try:
+            # Dividir por comas y convertir a enteros
+            cod_un_ids = [int(x.strip()) for x in cod_un.split(',') if x.strip()]
+            if cod_un_ids:
+                filtro &= Q(cod_un_id__in=cod_un_ids)
+        except (ValueError, TypeError):
+            pass  # Ignorar si no son números válidos
+    
+    # Manejo de múltiples operaciones
+    if operacion:
+        operaciones = [x.strip() for x in operacion.split(',') if x.strip()]
+        if operaciones:
+            filtro &= Q(operacion__in=operaciones)
+    
+    registros = RegistroProduccion.objects.filter(filtro).select_related('cod_equipo', 'cod_un').order_by('cod_equipo', '-fecha', '-hr_fin')
+    
+    # Filtrar solo registros que tengan cambios de componentes
+    registros_con_cambios = registros.filter(
+        Q(espada=True) | Q(puntera=True) | Q(pinon=True) | Q(giro_pinon=True)
+    )
+    
+    if not registros_con_cambios.exists():
+        return JsonResponse({'data': []}, safe=False)
+    
+    # Obtener todos los registros de las máquinas que tuvieron cambios (para calcular totales)
+    equipos_con_cambios = set(r.cod_equipo.id for r in registros_con_cambios if r.cod_equipo)
+    todos_registros = registros.filter(cod_equipo__id__in=equipos_con_cambios)
+    
+    # Procesar datos por máquina
+    datos_maquinas = {}
+    
+    # Primero procesamos todos los registros para obtener totales
+    for registro in todos_registros:
+        equipo_id = registro.cod_equipo.id if registro.cod_equipo else 'sin_equipo'
+        
+        if equipo_id not in datos_maquinas:
+            datos_maquinas[equipo_id] = {
+                'maquina': registro.cod_equipo.detalle if registro.cod_equipo else 'Sin equipo',
+                'patente': registro.cod_equipo.patente if registro.cod_equipo else 'Sin patente',
+                'unidad_negocio': registro.cod_un.nombre if registro.cod_un else 'Sin UN',
+                'cod_un': registro.cod_un.id if registro.cod_un else None,
+                'cantidad_cadenas_total': 0,
+                'ultima_hr_registrada': None,
+                'total_horas_trabajadas': 0,
+                'total_m3': 0,
+                'total_aceite_cadena': 0,
+                'ultima_hr_cambio_espada': None,
+                'ultima_hr_cambio_puntera': None,
+                'ultima_hr_cambio_pinon': None,
+                'ultima_hr_cambio_giro_pinon': None,
+                'm3_desde_ultimo_cambio_espada': 0,
+                'm3_desde_ultimo_cambio_puntera': 0,
+                'm3_desde_ultimo_cambio_pinon': 0,
+                'registros_procesados': []
+            }
+        
+        maquina_data = datos_maquinas[equipo_id]
+        
+        # Calcular horas trabajadas para este registro
+        horas_inicio = float(registro.hr_inicio or 0)
+        horas_fin = float(registro.hr_fin or 0)
+        horas_trabajadas = max(0, horas_fin - horas_inicio)
+        
+        # Acumular valores generales
+        maquina_data['cantidad_cadenas_total'] += registro.cantidad_cadenas or 0
+        maquina_data['total_m3'] += registro.m3 or 0
+        maquina_data['total_aceite_cadena'] += float(registro.aceite_cadena or 0)
+        
+        # Actualizar última hora registrada (tomar la más reciente)
+        if maquina_data['ultima_hr_registrada'] is None or horas_fin > maquina_data['ultima_hr_registrada']:
+            maquina_data['ultima_hr_registrada'] = horas_fin
+        
+        # Acumular horas trabajadas
+        maquina_data['total_horas_trabajadas'] += horas_trabajadas
+    
+    # Ahora procesamos los registros con cambios para obtener las últimas horas de cambio
+    for registro in registros_con_cambios:
+        equipo_id = registro.cod_equipo.id if registro.cod_equipo else 'sin_equipo'
+        maquina_data = datos_maquinas[equipo_id]
+        
+        horas_fin = float(registro.hr_fin or 0)
+        
+        # Verificar cambios de componentes y actualizar última hora
+        if registro.espada and (maquina_data['ultima_hr_cambio_espada'] is None or horas_fin > maquina_data['ultima_hr_cambio_espada']):
+            maquina_data['ultima_hr_cambio_espada'] = horas_fin
+            
+        if registro.puntera and (maquina_data['ultima_hr_cambio_puntera'] is None or horas_fin > maquina_data['ultima_hr_cambio_puntera']):
+            maquina_data['ultima_hr_cambio_puntera'] = horas_fin
+            
+        if registro.pinon and (maquina_data['ultima_hr_cambio_pinon'] is None or horas_fin > maquina_data['ultima_hr_cambio_pinon']):
+            maquina_data['ultima_hr_cambio_pinon'] = horas_fin
+            
+        if registro.giro_pinon and (maquina_data['ultima_hr_cambio_giro_pinon'] is None or horas_fin > maquina_data['ultima_hr_cambio_giro_pinon']):
+            maquina_data['ultima_hr_cambio_giro_pinon'] = horas_fin
+    
+    # Calcular m³ desde el último cambio de cada componente
+    for equipo_id, maquina_data in datos_maquinas.items():
+        # Para calcular m³ desde el último cambio, necesitamos filtrar registros posteriores al cambio
+        if maquina_data['ultima_hr_cambio_espada']:
+            m3_desde_espada = todos_registros.filter(
+                cod_equipo__id=equipo_id,
+                hr_fin__gte=maquina_data['ultima_hr_cambio_espada']
+            ).aggregate(total=Sum('m3'))['total'] or 0
+            maquina_data['m3_desde_ultimo_cambio_espada'] = m3_desde_espada
+            
+        if maquina_data['ultima_hr_cambio_puntera']:
+            m3_desde_puntera = todos_registros.filter(
+                cod_equipo__id=equipo_id,
+                hr_fin__gte=maquina_data['ultima_hr_cambio_puntera']
+            ).aggregate(total=Sum('m3'))['total'] or 0
+            maquina_data['m3_desde_ultimo_cambio_puntera'] = m3_desde_puntera
+            
+        if maquina_data['ultima_hr_cambio_pinon']:
+            m3_desde_pinon = todos_registros.filter(
+                cod_equipo__id=equipo_id,
+                hr_fin__gte=maquina_data['ultima_hr_cambio_pinon']
+            ).aggregate(total=Sum('m3'))['total'] or 0
+            maquina_data['m3_desde_ultimo_cambio_pinon'] = m3_desde_pinon
+    
+    # Preparar resultado final
+    resultado = []
+    for maquina_data in datos_maquinas.values():
+        # Calcular rendimiento por cadena
+        rendimiento_por_cadena = 0
+        if maquina_data['cantidad_cadenas_total'] > 0:
+            rendimiento_por_cadena = round(maquina_data['total_m3'] / maquina_data['cantidad_cadenas_total'], 2)
+        
+        resultado.append({
+            'maquina': maquina_data['maquina'],
+            'patente': maquina_data['patente'],
+            'unidad_negocio': maquina_data['unidad_negocio'],
+            'cod_un': maquina_data['cod_un'],
+            'cantidad_cadenas_utilizadas': maquina_data['cantidad_cadenas_total'],
+            'ultima_hr_registrada': round(maquina_data['ultima_hr_registrada'], 2) if maquina_data['ultima_hr_registrada'] else 0,
+            'total_horas_trabajadas': round(maquina_data['total_horas_trabajadas'], 2),
+            'total_m3': maquina_data['total_m3'],
+            'rendimiento_por_cadena': rendimiento_por_cadena,
+            'total_aceite_cadena': round(maquina_data['total_aceite_cadena'], 2),
+            'm3_desde_ultimo_cambio_espada': maquina_data['m3_desde_ultimo_cambio_espada'],
+            'm3_desde_ultimo_cambio_puntera': maquina_data['m3_desde_ultimo_cambio_puntera'],
+            'm3_desde_ultimo_cambio_pinon': maquina_data['m3_desde_ultimo_cambio_pinon'],
+            'ultima_hr_cambio_espada': round(maquina_data['ultima_hr_cambio_espada'], 2) if maquina_data['ultima_hr_cambio_espada'] else None,
+            'ultima_hr_cambio_puntera': round(maquina_data['ultima_hr_cambio_puntera'], 2) if maquina_data['ultima_hr_cambio_puntera'] else None,
+            'ultima_hr_cambio_pinon': round(maquina_data['ultima_hr_cambio_pinon'], 2) if maquina_data['ultima_hr_cambio_pinon'] else None,
+            'ultima_hr_cambio_giro_pinon': round(maquina_data['ultima_hr_cambio_giro_pinon'], 2) if maquina_data['ultima_hr_cambio_giro_pinon'] else None
+        })
+    
+    # Ordenar por máquina
+    resultado.sort(key=lambda x: x['maquina'])
+    
+    # Calcular totales generales
+    total_m3 = sum(item['total_m3'] for item in resultado)
+    total_aceite = sum(item['total_aceite_cadena'] for item in resultado)
+    total_cadenas = sum(item['cantidad_cadenas_utilizadas'] for item in resultado)
+    
+    return JsonResponse({
+        'data': resultado,
+        'total_maquinas': len(resultado),
+        'totales': {
+            'total_m3': total_m3,
+            'total_aceite_cadena': round(total_aceite, 2),
+            'total_cadenas': total_cadenas,
+            'rendimiento_promedio': round(total_m3 / total_cadenas, 2) if total_cadenas > 0 else 0
+        },
+        'rango_fechas': {
+            'fecha_inicio': fecha_inicio_str,
+            'fecha_fin': fecha_fin_str
+        }
+    }, safe=False)

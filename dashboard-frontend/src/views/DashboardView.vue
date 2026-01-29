@@ -1,6 +1,5 @@
-<!-- src/views/DashboardView.vue -->
 <template>
-  <div class="flex flex-col h-screen bg-gray-50">
+  <div class="flex flex-col h-screen bg-primary-50 font-sans">
     <!-- Main -->
     <main class="flex flex-1 overflow-hidden">
       <!-- Sidebar -->
@@ -23,13 +22,13 @@
             ✕
           </button>
         </div>
-        <form @submit.prevent="fetchProduccion" class="space-y-6">
+        <form @submit.prevent="aplicarFiltrosYBuscar" class="space-y-6">
           <div>
             <label class="block text-sm font-medium text-gray-600 mb-1">Fecha desde</label>
             <input
               v-model="filters.start_date"
               type="date"
-              class="w-full px-3 py-1.5 border border-gray-300 rounded-md shadow-sm focus:ring-2 focus:ring-blue-500 focus:outline-none text-sm"
+              class="w-full px-3 py-1.5 border border-gray-300 rounded-md shadow-sm focus:ring-2 focus:ring-primary-500 focus:outline-none text-sm"
             />
           </div>
           <div>
@@ -37,45 +36,87 @@
             <input
               v-model="filters.end_date"
               type="date"
-              class="w-full px-3 py-1.5 border border-gray-300 rounded-md shadow-sm focus:ring-2 focus:ring-blue-500 focus:outline-none text-sm"
+              class="w-full px-3 py-1.5 border border-gray-300 rounded-md shadow-sm focus:ring-2 focus:ring-primary-500 focus:outline-none text-sm"
             />
           </div>
           <div>
-            <label class="block text-sm font-medium text-gray-600 mb-1">Unidad de Negocio</label>
-            <select v-model="filters.cod_un" @change="cargarFiltros"
-                class="w-full px-3 py-1.5 border border-gray-300 rounded-md shadow-sm focus:ring-2 focus:ring-blue-500 focus:outline-none text-sm">
-              <option value="">Todas</option>
-              <option v-for="un in unidades" :key="un.id" :value="un.id">
-                {{ un.nombre }}
-              </option>
-            </select>
+            <label class="block text-sm font-medium text-gray-600 mb-1">Unidades de Negocio</label>
+            <div class="relative">
+              <select 
+                v-model="filters.cod_un" 
+                multiple
+                class="w-full px-3 py-1.5 border border-gray-300 rounded-md shadow-sm focus:ring-2 focus:ring-primary-500 focus:outline-none text-sm min-h-[2.5rem]"
+              >
+                <option v-for="un in unidades" :key="un.id" :value="un.id">
+                  {{ un.nombre }}
+                </option>
+              </select>
+              <div class="text-xs text-gray-500 mt-1">Mantén Ctrl/Cmd para seleccionar múltiples</div>
+              <!-- Mostrar elementos seleccionados -->
+              <div v-if="filters.cod_un.length > 0" class="mt-2 flex flex-wrap gap-1">
+                <span 
+                  v-for="unId in filters.cod_un" 
+                  :key="unId" 
+                  class="multi-select-tag inline-flex items-center px-2 py-1 rounded-full text-xs font-medium bg-primary-100 text-primary-800"
+                >
+                  {{ unidades.find(u => u.id == unId)?.nombre || unId }}
+                  <button 
+                    @click="removeUnidad(unId)"
+                    class="ml-1 text-primary-600 hover:text-primary-800 rounded-full w-4 h-4 flex items-center justify-center"
+                    title="Remover"
+                  >
+                    ×
+                  </button>
+                </span>
+              </div>
+            </div>
           </div>
           <div>
-            <label class="block text-sm font-medium text-gray-600 mb-1">Operación</label>
-            <select
-              v-model="filters.operacion"
-              class="w-full px-3 py-1.5 border border-gray-300 rounded-md shadow-sm focus:ring-2 focus:ring-blue-500 focus:outline-none text-sm"
-            >
-              <option value="">Todas</option>
-              <option v-for="op in operaciones" :key="op" :value="op">{{ op }}</option>
-            </select>
+            <label class="block text-sm font-medium text-gray-600 mb-1">Operaciones</label>
+            <div class="relative">
+              <select
+                v-model="filters.operacion"
+                multiple
+                class="w-full px-3 py-1.5 border border-gray-300 rounded-md shadow-sm focus:ring-2 focus:ring-primary-500 focus:outline-none text-sm min-h-[2.5rem]"
+              >
+                <option v-for="op in operaciones" :key="op" :value="op">{{ op }}</option>
+              </select>
+              <div class="text-xs text-gray-500 mt-1">Mantén Ctrl/Cmd para seleccionar múltiples</div>
+              <!-- Mostrar operaciones seleccionadas -->
+              <div v-if="filters.operacion.length > 0" class="mt-2 flex flex-wrap gap-1">
+                <span 
+                  v-for="op in filters.operacion" 
+                  :key="op" 
+                  class="multi-select-tag inline-flex items-center px-2 py-1 rounded-full text-xs font-medium bg-green-100 text-green-800"
+                >
+                  {{ op }}
+                  <button 
+                    @click="removeOperacion(op)"
+                    class="ml-1 text-green-600 hover:text-green-800 rounded-full w-4 h-4 flex items-center justify-center"
+                    title="Remover"
+                  >
+                    ×
+                  </button>
+                </span>
+              </div>
+            </div>
           </div>
           <div>
             <label class="block text-sm font-medium text-gray-600 mb-1">Operador</label>
             <select
               v-model="filters.operador"
-              class="w-full px-3 py-1.5 border border-gray-300 rounded-md shadow-sm focus:ring-2 focus:ring-blue-500 focus:outline-none text-sm"
+              class="w-full px-3 py-1.5 border border-gray-300 rounded-md shadow-sm focus:ring-2 focus:ring-primary-500 focus:outline-none text-sm"
             >
               <option value="">Todos</option>
               <option v-for="op in operadores" :key="op" :value="op">{{ op }}</option>
             </select>
-            <div v-if="loadingFiltros" class="text-xs text-blue-500 mt-1 animate-pulse">Cargando operadores...</div>
+            <div v-if="loadingFiltros" class="text-xs text-primary-500 mt-1 animate-pulse">Cargando operadores...</div>
           </div>
           <div>
             <label class="block text-sm font-medium text-gray-600 mb-1">Equipo</label>
             <select
               v-model="filters.detalle_equipo"
-              class="w-full px-3 py-1.5 border border-gray-300 rounded-md shadow-sm focus:ring-2 focus:ring-blue-500 focus:outline-none text-sm"
+              class="w-full px-3 py-1.5 border border-gray-300 rounded-md shadow-sm focus:ring-2 focus:ring-primary-500 focus:outline-none text-sm"
             >
               <option value="">Todos</option>
               <option v-for="eq in equipos" :key="eq" :value="eq">{{ eq }}</option>
@@ -85,7 +126,7 @@
             <label class="block text-sm font-medium text-gray-600 mb-1">Acta</label>
             <select
               v-model="filters.acta"
-              class="w-full px-3 py-1.5 border border-gray-300 rounded-md shadow-sm focus:ring-2 focus:ring-blue-500 focus:outline-none text-sm"
+              class="w-full px-3 py-1.5 border border-gray-300 rounded-md shadow-sm focus:ring-2 focus:ring-primary-500 focus:outline-none text-sm"
             >
               <option value="">Todos</option>
               <option v-for="ac in actas" :key="ac" :value="ac">{{ ac }}</option>
@@ -96,7 +137,7 @@
             <label class="block text-sm font-medium text-gray-600 mb-1">Predios</label>
             <select
               v-model="filters.predio"
-              class="w-full px-3 py-1.5 border border-gray-300 rounded-md shadow-sm focus:ring-2 focus:ring-blue-500 focus:outline-none text-sm"
+              class="w-full px-3 py-1.5 border border-gray-300 rounded-md shadow-sm focus:ring-2 focus:ring-primary-500 focus:outline-none text-sm"
             >
               <option value="">Todos</option>
               <option v-for="pred in predios" :key="pred" :value="pred">{{ pred }}</option>
@@ -104,10 +145,10 @@
           </div>          
           <button
             type="submit"
-            :disabled="loading"
-            class="w-full bg-blue-600 hover:bg-blue-700 disabled:bg-blue-300 text-white font-semibold py-2 rounded-md transition-colors duration-200"
+            :disabled="loading || loadingFiltros"
+            class="w-full bg-primary-600 hover:bg-primary-700 disabled:bg-primary-300 text-white font-semibold py-2 rounded-md transition-colors duration-200"
           >
-            {{ loading ? 'Cargando...' : 'Buscar' }}
+            {{ loading || loadingFiltros ? 'Cargando...' : 'Aplicar Filtros y Buscar' }}
           </button>
         </form>
       </aside>
@@ -125,7 +166,7 @@
         <button
           v-if="isMobile"
           @click="showSidebar = true"
-          class="mb-4 bg-gray-800 hover:bg-gray-700 text-white px-4 py-2 rounded-md text-sm flex items-center gap-1"
+          class="mb-4 bg-primary-800 hover:bg-primary-700 text-white px-4 py-2 rounded-md text-sm flex items-center gap-1"
         >
           <svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
             <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M3 4a1 1 0 011-1h16a1 1 0 011 1v2.586a1 1 0 01-.293.707l-6.414 6.414a1 1 0 00-.293.707V17l-4 4v-6.586a1 1 0 00-.293-.707L3.293 7.293A1 1 0 013 6.586V4z" />
@@ -138,13 +179,13 @@
 
         <!-- 🟩 Producción Total (importante) -->
         <div class="bg-white p-6 rounded-xl shadow-sm hover:shadow-md transition-all duration-300 text-center transform hover:-translate-y-1 animate-fade-in-up">
-          <div class="inline-flex p-2 bg-blue-100 rounded-lg mb-2">
-            <svg xmlns="http://www.w3.org/2000/svg" class="h-6 w-6 text-blue-600" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+          <div class="inline-flex p-2 bg-primary-100 rounded-lg mb-2">
+            <svg xmlns="http://www.w3.org/2000/svg" class="h-6 w-6 text-primary-600" fill="none" viewBox="0 0 24 24" stroke="currentColor">
               <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 012-2h2a2 2 0 012 2v14a2 2 0 01-2 2h-2a2 2 0 01-2-2z" />
             </svg>
           </div>
           <h3 class="text-sm font-medium text-gray-500 mb-1">Producción Real</h3>
-          <p class="text-xl font-bold text-blue-700">{{ formatNumber(totalProduccion) }} {{ unidad_produccion }}</p>
+          <p class="text-xl font-bold text-primary-700">{{ formatNumber(totalProduccion) }} {{ unidad_produccion }}</p>
           <p class="text-sm text-gray-500 mt-1">
             <span :class="colorCumplimiento">{{ iconoCumplimiento }} {{ formatNumber(produccionEsperada) }} esperado</span>
           </p>
@@ -152,15 +193,15 @@
 
         <!-- 🟥 Cumplimiento de Meta (NUEVO KPI IMPORTANTE) -->
         <div class="bg-white p-6 rounded-xl shadow-sm hover:shadow-md transition-all duration-300 text-center transform hover:-translate-y-1 animate-fade-in-up" style="animation-delay: 100ms">
-          <div class="inline-flex p-2 bg-green-100 rounded-lg mb-2">
-            <svg xmlns="http://www.w3.org/2000/svg" class="h-6 w-6 text-green-600" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+          <div class="inline-flex p-2 bg-primary-100 rounded-lg mb-2">
+            <svg xmlns="http://www.w3.org/2000/svg" class="h-6 w-6 text-primary-600" fill="none" viewBox="0 0 24 24" stroke="currentColor">
               <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z" />
             </svg>
           </div>
           <h3 class="text-sm font-medium text-gray-500 mb-1">Cumplimiento</h3>
           <p 
             class="text-xl font-bold"
-            :class="eficiencia < 90 ? 'text-red-700' : eficiencia < 100 ? 'text-orange-700' : 'text-green-700'"
+            :class="eficiencia < 90 ? 'text-primary-700' : eficiencia < 100 ? 'text-yellow-700' : 'text-primary-700'"
           >
             {{ eficiencia }}%
           </p>
@@ -171,35 +212,35 @@
 
         <!-- ⚙️ Total Horas -->
         <div class="bg-white p-6 rounded-xl shadow-sm hover:shadow-md transition-all duration-300 text-center transform hover:-translate-y-1 animate-fade-in-up" style="animation-delay: 200ms">
-          <div class="inline-flex p-2 bg-orange-100 rounded-lg mb-2">
-            <svg xmlns="http://www.w3.org/2000/svg" class="h-6 w-6 text-orange-600" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+          <div class="inline-flex p-2 bg-primary-100 rounded-lg mb-2">
+            <svg xmlns="http://www.w3.org/2000/svg" class="h-6 w-6 text-primary-600" fill="none" viewBox="0 0 24 24" stroke="currentColor">
               <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z" />
             </svg>
           </div>
           <h3 class="text-sm font-medium text-gray-500 mb-1">Horas Trabajadas</h3>
-          <p class="text-xl font-bold text-orange-700">{{ formatNumber(totalHoras) }} h</p>
+          <p class="text-xl font-bold text-primary-700">{{ formatNumber(totalHoras) }} h</p>
         </div>
 
         <!-- ⛽ Combustible -->
         <div class="bg-white p-6 rounded-xl shadow-sm hover:shadow-md transition-all duration-300 text-center transform hover:-translate-y-1 animate-fade-in-up" style="animation-delay: 300ms">
-          <div class="inline-flex p-2 bg-red-100 rounded-lg mb-2">
-            <svg xmlns="http://www.w3.org/2000/svg" class="h-6 w-6 text-red-600" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+          <div class="inline-flex p-2 bg-primary-100 rounded-lg mb-2">
+            <svg xmlns="http://www.w3.org/2000/svg" class="h-6 w-6 text-primary-600" fill="none" viewBox="0 0 24 24" stroke="currentColor">
               <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 9l-7 7-7-7" />
             </svg>
           </div>
           <h3 class="text-sm font-medium text-gray-500 mb-1">Combustible</h3>
-          <p class="text-xl font-bold text-red-700">{{ formatNumber(totalCombustible) }} L</p>
+          <p class="text-xl font-bold text-primary-700">{{ formatNumber(totalCombustible) }} L</p>
         </div>
 
         <!-- 🔥 Consumo por Hora -->
         <div class="bg-white p-6 rounded-xl shadow-sm hover:shadow-md transition-all duration-300 text-center transform hover:-translate-y-1 animate-fade-in-up" style="animation-delay: 400ms">
-          <div class="inline-flex p-2 bg-amber-100 rounded-lg mb-2">
-            <svg xmlns="http://www.w3.org/2000/svg" class="h-6 w-6 text-amber-600" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+          <div class="inline-flex p-2 bg-primary-100 rounded-lg mb-2">
+            <svg xmlns="http://www.w3.org/2000/svg" class="h-6 w-6 text-primary-600" fill="none" viewBox="0 0 24 24" stroke="currentColor">
               <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 6v6m0 0v6m0-6h6m-6 0H6" />
             </svg>
           </div>
           <h3 class="text-sm font-medium text-gray-500 mb-1">Consumo por Hora</h3>
-          <p class="text-xl font-bold text-amber-700">{{ consumoPorHora }} L/h</p>
+          <p class="text-xl font-bold text-primary-700">{{ consumoPorHora }} L/h</p>
         </div>
 
         <!-- 📉 Horas No Operativas -->
@@ -215,54 +256,158 @@
 
         <!-- 🏭 Stock ABC (menos prioritario) -->
         <div class="bg-white p-6 rounded-xl shadow-sm hover:shadow-md transition-all duration-300 text-center transform hover:-translate-y-1 animate-fade-in-up" style="animation-delay: 600ms">
-          <div class="inline-flex p-2 bg-purple-100 rounded-lg mb-2">
-            <svg xmlns="http://www.w3.org/2000/svg" class="h-6 w-6 text-purple-600" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+          <div class="inline-flex p-2 bg-primary-100 rounded-lg mb-2">
+            <svg xmlns="http://www.w3.org/2000/svg" class="h-6 w-6 text-primary-600" fill="none" viewBox="0 0 24 24" stroke="currentColor">
               <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M20 7l-8-4-8 4m16 0v10l-8 4-8-4V7" />
             </svg>
           </div>
           <h3 class="text-sm font-medium text-gray-500 mb-1">Stock ABC</h3>
-          <p class="text-xl font-bold text-purple-700">{{ formatNumber(totalStockABC) }} TN</p>
+          <p class="text-xl font-bold text-primary-700">{{ formatNumber(totalStockABC) }} TN</p>
+        </div>
+
+        <!-- 🏭 Horas a disposicion -->
+        <div class="bg-white p-6 rounded-xl shadow-sm hover:shadow-md transition-all duration-300 text-center transform hover:-translate-y-1 animate-fade-in-up" style="animation-delay: 600ms">
+          <div class="inline-flex p-2 bg-primary-100 rounded-lg mb-2">
+            <svg xmlns="http://www.w3.org/2000/svg" class="h-6 w-6 text-primary-600" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+              <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z" />
+            </svg>
+          </div>
+          <h3 class="text-sm font-medium text-gray-500 mb-1">Hrs. a Disposición</h3>
+          <p class="text-xl font-bold text-primary-700">{{ formatNumber(totalHrsDisposicion) }} Hrs</p>
         </div>
 
       </div>
-        <!-- Gráfico Producción y Horas -->
-        <div class="bg-white p-6 rounded-lg shadow mb-6">
-          <h2 class="text-xl font-semibold mb-4">Producción y Horas Trabajadas por Día</h2>
-          <BarChart
-            :chart-data="chartDataProduccionHoras"
-            :options="chartOptionsProduccionHoras"
-          />
-        </div>
-        
-        <!-- Gráfico: Acumulado Real vs Esperado -->
-        <div class="bg-white p-6 rounded-lg shadow mb-6">
-          <h2 class="text-xl font-semibold mb-4">Avance Acumulado: Real vs Esperado</h2>
-          <BarChart
-            :chart-data="chartDataAcumulado"
-            :options="chartOptionsAcumulado"
-          />
-        </div>
-        
-        <!-- Otros gráficos -->
-        <div class="bg-white p-6 rounded-lg shadow mb-6">
-          <h2 class="text-xl font-semibold mb-4">Combustible por Día (L)</h2>
-          <BarChart :chart-data="chartDataCombustible" />
-        </div>
-        <div class="bg-white p-6 rounded-lg shadow mb-6">
-          <h2 class="text-xl font-semibold mb-4">Consumo por Hora (L/h)</h2>
-          <BarChart
-            :chart-data="chartDataConsumoHora"
-            :options="chartOptionsConsumoHora"
-          />
-        </div>
 
+        <!-- Pestañas de Gráficos -->
+        <div class="bg-white rounded-lg shadow mb-6">
+          <!-- Pestañas -->
+          <div class="border-b border-gray-200">
+            <nav class="flex overflow-x-auto -mb-px">
+              <button
+                @click="activeTab = 'produccion-horas'"
+                :class="[
+                  'whitespace-nowrap py-4 px-6 text-sm font-medium border-b-2 transition-colors duration-200',
+                  activeTab === 'produccion-horas'
+                    ? 'border-primary-500 text-primary-600 bg-primary-50'
+                    : 'border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300 hover:bg-gray-50'
+                ]"
+              >
+                Producción y Horas
+              </button>
+              <button
+                @click="activeTab = 'acumulado'"
+                :class="[
+                  'whitespace-nowrap py-4 px-6 text-sm font-medium border-b-2 transition-colors duration-200',
+                  activeTab === 'acumulado'
+                    ? 'border-primary-500 text-primary-600 bg-primary-50'
+                    : 'border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300 hover:bg-gray-50'
+                ]"
+              >
+                Acumulado Real vs Esperado
+              </button>
+              <button
+                @click="activeTab = 'combustible'"
+                :class="[
+                  'whitespace-nowrap py-4 px-6 text-sm font-medium border-b-2 transition-colors duration-200',
+                  activeTab === 'combustible'
+                    ? 'border-primary-500 text-primary-600 bg-primary-50'
+                    : 'border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300 hover:bg-gray-50'
+                ]"
+              >
+                Combustible
+              </button>
+              <button
+                @click="activeTab = 'consumo-hora'"
+                :class="[
+                  'whitespace-nowrap py-4 px-6 text-sm font-medium border-b-2 transition-colors duration-200',
+                  activeTab === 'consumo-hora'
+                    ? 'border-primary-500 text-primary-600 bg-primary-50'
+                    : 'border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300 hover:bg-gray-50'
+                ]"
+              >
+                Consumo por Hora
+              </button>
+            </nav>
+          </div>
+
+          <!-- Contenido de las pestañas -->
+          <div class="p-6">
+            <!-- Tab 1: Producción y Horas -->
+            <div v-show="activeTab === 'produccion-horas'">
+              <h2 class="text-xl font-semibold mb-4">Producción y Horas Trabajadas por Día</h2>
+              <div v-if="loading" class="flex items-center justify-center h-96 bg-gray-50 rounded-lg">
+                <div class="text-center">
+                  <div class="animate-spin rounded-full h-12 w-12 border-b-2 border-primary-600 mx-auto mb-4"></div>
+                  <p class="text-gray-600 font-medium">Cargando datos del gráfico...</p>
+                </div>
+              </div>
+              <BarChart
+                v-else
+                :chart-data="chartDataProduccionHoras"
+                :options="chartOptionsProduccionHoras"
+                :height="400"
+              />
+            </div>
+
+            <!-- Tab 2: Acumulado -->
+            <div v-show="activeTab === 'acumulado'">
+              <h2 class="text-xl font-semibold mb-4">Avance Acumulado: Real vs Esperado</h2>
+              <div v-if="loading" class="flex items-center justify-center h-96 bg-gray-50 rounded-lg">
+                <div class="text-center">
+                  <div class="animate-spin rounded-full h-12 w-12 border-b-2 border-primary-600 mx-auto mb-4"></div>
+                  <p class="text-gray-600 font-medium">Cargando datos del gráfico...</p>
+                </div>
+              </div>
+              <BarChart
+                v-else
+                :chart-data="chartDataAcumulado"
+                :options="chartOptionsAcumulado"
+                :height="400"
+              />
+            </div>
+
+            <!-- Tab 3: Combustible -->
+            <div v-show="activeTab === 'combustible'">
+              <h2 class="text-xl font-semibold mb-4">Combustible por Día (L)</h2>
+              <div v-if="loading" class="flex items-center justify-center h-96 bg-gray-50 rounded-lg">
+                <div class="text-center">
+                  <div class="animate-spin rounded-full h-12 w-12 border-b-2 border-primary-600 mx-auto mb-4"></div>
+                  <p class="text-gray-600 font-medium">Cargando datos del gráfico...</p>
+                </div>
+              </div>
+              <BarChart
+                v-else
+                :chart-data="chartDataCombustible"
+                :height="400"
+              />
+            </div>
+
+            <!-- Tab 4: Consumo por Hora -->
+            <div v-show="activeTab === 'consumo-hora'">
+              <h2 class="text-xl font-semibold mb-4">Consumo por Hora (L/h)</h2>
+              <div v-if="loading" class="flex items-center justify-center h-96 bg-gray-50 rounded-lg">
+                <div class="text-center">
+                  <div class="animate-spin rounded-full h-12 w-12 border-b-2 border-primary-600 mx-auto mb-4"></div>
+                  <p class="text-gray-600 font-medium">Cargando datos del gráfico...</p>
+                </div>
+              </div>
+              <BarChart
+                v-else
+                :chart-data="chartDataConsumoHora"
+                :options="chartOptionsConsumoHora"
+                :height="400"
+              />
+            </div>
+          </div>
+        </div>
+        
         <!-- Tabla -->
         <div class="bg-white shadow rounded-lg overflow-hidden">
           <!-- Botón Exportar a Excel -->
           <div class="flex justify-end mb-4">
             <button
               @click="exportarRegistrosAExcel"
-              class="bg-green-600 hover:bg-green-700 text-white text-sm font-medium py-2 px-4 rounded-md shadow-sm transition flex items-center gap-2"
+              class="bg-primary-600 hover:bg-primary-700 text-white text-sm font-medium py-2 px-4 rounded-md shadow-sm transition flex items-center gap-2"
             >
               <i class="fas fa-file-excel"></i>
               Exportar a Excel
@@ -279,7 +424,7 @@
                   >
                     Fecha
                     <template v-if="ordenarPor === 'fecha'">
-                      <i v-if="ordenAsc" class="fas fa-sort-up text-green-600 ml-1"></i>
+                      <i v-if="ordenAsc" class="fas fa-sort-up text-primary-600 ml-1"></i>
                       <i v-else class="fas fa-sort-down text-red-600 ml-1"></i>
                     </template>
                     <i v-else class="fas fa-sort text-gray-400 ml-1"></i>
@@ -294,7 +439,7 @@
                   >
                     Operacion
                     <template v-if="ordenarPor === 'operacion'">
-                      <i v-if="ordenAsc" class="fas fa-sort-up text-green-600 ml-1"></i>
+                      <i v-if="ordenAsc" class="fas fa-sort-up text-primary-600 ml-1"></i>
                       <i v-else class="fas fa-sort-down text-red-600 ml-1"></i>
                     </template>
                     <i v-else class="fas fa-sort text-gray-400 ml-1"></i>
@@ -308,7 +453,7 @@
                   >
                     UN
                     <template v-if="ordenarPor === 'un'">
-                      <i v-if="ordenAsc" class="fas fa-sort-up text-green-600 ml-1"></i>
+                      <i v-if="ordenAsc" class="fas fa-sort-up text-primary-600 ml-1"></i>
                       <i v-else class="fas fa-sort-down text-red-600 ml-1"></i>
                     </template>
                     <i v-else class="fas fa-sort text-gray-400 ml-1"></i>
@@ -321,7 +466,7 @@
                   >
                     Equipo
                     <template v-if="ordenarPor === 'equipo'">
-                      <i v-if="ordenAsc" class="fas fa-sort-up text-green-600 ml-1"></i>
+                      <i v-if="ordenAsc" class="fas fa-sort-up text-primary-600 ml-1"></i>
                       <i v-else class="fas fa-sort-down text-red-600 ml-1"></i>
                     </template>
                     <i v-else class="fas fa-sort text-gray-400 ml-1"></i>
@@ -332,13 +477,13 @@
                 </tr>
               </thead>
               <tbody class="divide-y divide-gray-100">
-                <tr v-for="r in cargasParaTabla" :key="r.id" class="hover:bg-blue-50 even:bg-gray-50">
+                <tr v-for="r in cargasParaTabla" :key="r.id" class="hover:bg-primary-50 even:bg-gray-50">
                   <td class="px-6 py-4 text-sm text-gray-800">{{ r.fecha }}</td>
                   <td class="px-6 py-4 text-sm text-gray-800">{{ r.hr_inicio }}</td>
                   <td class="px-6 py-4 text-sm text-gray-800">{{ r.hr_fin }}</td>
                   <td class="px-6 py-4 text-sm text-gray-800">{{ r.operacion }}</td>
                   <td class="px-6 py-4 text-sm text-gray-800">{{ r.unidad_produccion }}</td>
-                  <td class="px-6 py-4 text-sm text-gray-800">{{ r.UN }}</td>
+                  <td class="px-6 py-4 text-sm text-gray-800">{{ r.unidad_negocio_detalle }}</td>
                   <td class="px-6 py-4 text-sm text-gray-800">{{ r.equipo_detalle }}</td>
                   <td class="px-6 py-4 text-sm text-gray-800">{{ r.produccion }}</td>
                 </tr>
@@ -346,7 +491,7 @@
             </table>
           </div>
           <div v-if="loading" class="flex justify-center items-center py-6">
-            <svg class="animate-spin h-5 w-5 text-blue-600 mr-2" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
+            <svg class="animate-spin h-5 w-5 text-primary-600 mr-2" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
               <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle>
               <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
             </svg>
@@ -375,12 +520,13 @@ const empleado = ref(null)
 const router = useRouter()
 const ordenarPor = ref('') // campo por el que se ordena: 'fecha', 'equipo', 'un', 'operacion'
 const ordenAsc = ref(true) // true = ascendente, false = descendente
+const activeTab = ref('produccion-horas') // Pestaña activa por defecto
 
 const filters = ref({
   start_date: '',
   end_date: '',
-  cod_un: '',  // ✅ ID, no nombre
-  operacion: '',
+  cod_un: [],  // ✅ Array para múltiples IDs
+  operacion: [],  // ✅ Array para múltiples operaciones
   detalle_equipo: '',
   operador: '',
   acta: '',
@@ -405,6 +551,12 @@ const isMobile = computed(() => window.innerWidth < 1024)
 const totalProduccion = computed(() => {
   return registros.value.reduce((sum, r) => sum + parseFloat(r.produccion || 0), 0)
 })
+
+const totalHrsDisposicion = computed(() => {
+  // console.log('registros.value:', registros.value)
+  return registros.value.reduce((sum, r) => sum + parseFloat(r.hr_disposicion || 0), 0)
+})
+
 const desvioAbsoluto = computed(() => {
   return totalProduccion.value - parseFloat(produccionEsperada.value || 0)
 })
@@ -470,7 +622,7 @@ const cumplimiento = computed(() => {
   return 'normal'
 })
 const colorCumplimiento = computed(() => {
-  return { superior: 'text-green-600', inferior: 'text-red-600', normal: 'text-yellow-600' }[cumplimiento.value]
+  return { superior: 'text-primary-600', inferior: 'text-red-600', normal: 'text-yellow-600' }[cumplimiento.value]
 })
 const iconoCumplimiento = computed(() => {
   const estado = cumplimiento.value
@@ -516,25 +668,25 @@ const chartDataAcumulado = computed(() => {
       {
         label: 'Acumulado Real',
         data: acumuladoRealData,
-        borderColor: 'rgba(75, 192, 192, 1)',
-        backgroundColor: 'rgba(75, 192, 192, 0.1)',
+        borderColor: '#22C55E', // primary-500
+        backgroundColor: 'rgba(34, 197, 94, 0.1)', // primary-500 with opacity
         borderWidth: 3,
         fill: true,
         tension: 0.3,
-        pointBackgroundColor: 'rgba(75, 192, 192, 1)',
+        pointBackgroundColor: '#22C55E', // primary-500
         pointRadius: 4,
         type: 'line'
       },
       {
         label: 'Acumulado Esperado',
         data: acumuladoEsperadoData,
-        borderColor: 'rgba(255, 159, 64, 1)',
-        backgroundColor: 'rgba(255, 159, 64, 0.1)',
+        borderColor: 'rgba(250, 204, 21, 1)', // yellow-400
+        backgroundColor: 'rgba(250, 204, 21, 0.1)', // yellow-400
         borderWidth: 3,
         borderDash: [6, 4],
         fill: false,
         tension: 0.3,
-        pointBackgroundColor: 'rgba(255, 159, 64, 1)',
+        pointBackgroundColor: 'rgba(250, 204, 21, 1)', // yellow-400
         pointRadius: 4,
         type: 'line'
       }
@@ -603,8 +755,8 @@ const chartDataProduccionHoras = computed(() => {
       {
         label: 'Producción Esperada',
         data: produccionEsperadaData,
-        backgroundColor: 'rgba(255, 193, 7, 0.6)',
-        borderColor: 'rgba(255, 193, 7, 1)',
+        backgroundColor: 'rgba(250, 204, 21, 0.6)', // yellow-400
+        borderColor: 'rgba(250, 204, 21, 1)', // yellow-400
         borderWidth: 1,
         type: 'bar',
         yAxisID: 'y',
@@ -613,8 +765,8 @@ const chartDataProduccionHoras = computed(() => {
       {
         label: 'Producción Real',
         data: produccionReal,
-        backgroundColor: 'rgba(59, 130, 246, 0.6)',
-        borderColor: 'rgba(59, 130, 246, 1)',
+        backgroundColor: 'rgba(34, 197, 94, 0.6)', // primary-500
+        borderColor: '#22C55E', // primary-500
         borderWidth: 1,
         type: 'bar',
         yAxisID: 'y',
@@ -672,7 +824,7 @@ const chartDataCombustible = computed(() => {
   })
   return {
     labels: Object.keys(data),
-    datasets: [{ label: 'Combustible (L)', data: Object.values(data), backgroundColor: 'rgba(135, 206, 250, 0.6)', borderColor: 'rgba(30, 144, 255, 1)', borderWidth: 1 }]
+    datasets: [{ label: 'Combustible (L)', data: Object.values(data), backgroundColor: 'rgba(34, 197, 94, 0.6)', borderColor: '#22C55E', borderWidth: 1 }]
   }
 })
 
@@ -701,8 +853,8 @@ const chartDataConsumoHora = computed(() => {
       {
         label: 'Consumo por Hora (L/h)',
         data: consumoPorHora,
-        backgroundColor: 'rgba(75, 192, 192, 0.6)',
-        borderColor: 'rgba(75, 192, 192, 1)',
+        backgroundColor: 'rgba(16, 185, 129, 0.6)',
+        borderColor: 'rgba(16, 185, 129, 1)',
         borderWidth: 1,
         yAxisID: 'y'
       }
@@ -738,6 +890,17 @@ const cargarFiltros = async () => {
   loadingFiltros.value = true
   try {
     const params = { ...filters.value }
+    // Convertir arrays a strings separados por comas para el backend
+    if (Array.isArray(params.cod_un) && params.cod_un.length > 0) {
+      params.cod_un = params.cod_un.join(',')
+    } else {
+      delete params.cod_un
+    }
+    if (Array.isArray(params.operacion) && params.operacion.length > 0) {
+      params.operacion = params.operacion.join(',')
+    } else {
+      delete params.operacion
+    }
     if (!params.un) delete params.un
     const response = await api.get('/api/filtros/', { params })
     unidades.value = response.data.unidades || []
@@ -757,7 +920,20 @@ const cargarFiltros = async () => {
 const fetchProduccion = async () => {
   loading.value = true
   try {
-    const response = await api.get('/api/produccion-dashboard/', { params: filters.value })
+    const params = { ...filters.value }
+    // Convertir arrays a strings separados por comas para el backend
+    if (Array.isArray(params.cod_un) && params.cod_un.length > 0) {
+      params.cod_un = params.cod_un.join(',')
+    } else {
+      delete params.cod_un
+    }
+    if (Array.isArray(params.operacion) && params.operacion.length > 0) {
+      params.operacion = params.operacion.join(',')
+    } else {
+      delete params.operacion
+    }
+    
+    const response = await api.get('/api/produccion-dashboard/', { params })
     registros.value = response.data.results || []
     produccionEsperada.value = response.data.produccion_esperada_acumulada || 0
     produccionEsperadaPorDia.value = response.data.produccion_esperada_por_dia || {}
@@ -773,8 +949,13 @@ const fetchProduccion = async () => {
 
 // Observar cambios en fechas
 watch(() => [filters.value.start_date, filters.value.end_date], () => {
-  if (filters.value.start_date && filters.value.end_date) cargarFiltros()
+  if (filters.value.start_date && filters.value.end_date) {
+    cargarFiltros()
+  }
 })
+
+// No cargar automáticamente los componentes al cambiar filtros
+// El usuario debe hacer clic en "Actualizar" para cargar los datos
 
 // Logout
 const logout = () => {
@@ -811,7 +992,7 @@ const exportarRegistrosAExcel = () => {
     'Hora Fin': r.hr_fin,
     'Operación': r.operacion,
     'Unidad de Producción': r.unidad_produccion,
-    'Unidad de Negocio': r.UN,
+    'Unidad de Negocio': r.unidad_negocio_detalle,
     'Equipo': r.equipo_detalle,
     'Producción': r.produccion
   }))
@@ -857,8 +1038,8 @@ const cargasParaTabla = computed(() => {
         valB = b.equipo_detalle?.toLowerCase() || ''
         break
       case 'un':
-        valA = a.UN?.toLowerCase() || ''
-        valB = b.UN?.toLowerCase() || ''
+        valA = a.unidad_negocio_detalle?.toLowerCase() || ''
+        valB = b.unidad_negocio_detalle?.toLowerCase() || ''
         break
       case 'operacion':
         valA = a.operacion?.toLowerCase() || ''
@@ -875,6 +1056,22 @@ const cargasParaTabla = computed(() => {
 
   return arr
 })
+
+const removeUnidad = (unidadId) => {
+  filters.value.cod_un = filters.value.cod_un.filter(id => id != unidadId)
+}
+
+const removeOperacion = (operacion) => {
+  filters.value.operacion = filters.value.operacion.filter(op => op !== operacion)
+}
+
+// Método para aplicar filtros y buscar datos
+const aplicarFiltrosYBuscar = async () => {
+  // Primero cargar los filtros dinámicos
+  await cargarFiltros()
+  // Luego buscar los datos de producción
+  await fetchProduccion()
+}
 
 const cambiarOrden = (campo) => {
   if (ordenarPor.value === campo) {
@@ -894,4 +1091,34 @@ const cambiarOrden = (campo) => {
   to { opacity: 1; transform: translateY(0); }
 }
 .animate-fade-in-up { animation: fade-in-up 0.5s ease-out forwards; }
+
+/* Estilos para multi-select tags */
+.multi-select-tag {
+  transition: all 0.2s ease;
+}
+
+.multi-select-tag:hover {
+  transform: scale(1.05);
+}
+
+.multi-select-tag button:hover {
+  background-color: rgba(0, 0, 0, 0.1);
+  border-radius: 50%;
+}
+
+/* Estilos para móviles */
+@media (max-width: 640px) {
+  nav.flex {
+    padding-bottom: 0.5rem;
+  }
+  
+  nav.flex button {
+    padding: 0.75rem 1rem;
+    font-size: 0.875rem;
+  }
+  
+  .p-6 {
+    padding: 1rem;
+  }
+}
 </style>

@@ -1,5 +1,5 @@
 from django.urls import path, include
-from .views import CargasCombustibleView, EmpleadoViewSet, EquiposPorUNView, FiltrosCombustibleView, FiltrosDinamicosView, HorasNoOperativasDashboardView, LoginEmpleadoView, ProduccionDashboardView, ProduccionOperadorView, RegistrosEmpleadoViewSet, ResumenOperacionalView
+from .views import CargasCombustibleView, EmpleadoViewSet, EquiposPorUNView, FiltrosCombustibleView, FiltrosDinamicosView, HorasNoOperativasDashboardView, LoginEmpleadoView, ProduccionDashboardView, ProduccionOperadorView, RegistrosEmpleadoViewSet, ResumenOperacionalView, maquinas_por_frente_operador, resumen_maquinas_componentes
 from rest_framework.routers import DefaultRouter
 
 router = DefaultRouter()
@@ -17,5 +17,7 @@ urlpatterns = [
     path('filtros-combustible/', FiltrosCombustibleView.as_view(), name='filtros-combustible'),
     path('equipos-por-un/', EquiposPorUNView.as_view(), name='equipos-por-un'),
     path('cargas-combustible/', CargasCombustibleView.as_view(), name='cargas-combustible'),   
-    path('horas-no-operativas/', HorasNoOperativasDashboardView.as_view(), name='horas-no-operativas'),     
+    path('horas-no-operativas/', HorasNoOperativasDashboardView.as_view(), name='horas-no-operativas'),    
+    path('maquinas-frente-operador/', maquinas_por_frente_operador, name='maquinas_frente_operador'),
+    path('resumen-maquinas-componentes/', resumen_maquinas_componentes, name='resumen_maquinas_componentes'),
 ]

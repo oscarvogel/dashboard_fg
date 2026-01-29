@@ -46,11 +46,23 @@ class RegistroProduccion(models.Model):
     cod_equipo = models.ForeignKey('Equipo', on_delete=models.CASCADE, db_column='cod_equipo')
     combustible = models.DecimalField(max_digits=12, decimal_places=2, default=0.00)
     aceite_cadena = models.DecimalField(max_digits=12, decimal_places=2, default=0.00)
+    aceite_hidraulico = models.DecimalField(max_digits=12, decimal_places=2, default=0.00)
     predio = models.CharField(max_length=50, null=True, blank=True)
     stock_abc = models.DecimalField(max_digits=12, decimal_places=2, default=0.00)
     acta = models.CharField(max_length=50, null=True, blank=True)
     cod_un = models.ForeignKey(UnidadNegocio, on_delete=models.CASCADE, db_column='cod_un', null=True, blank=True)
-    
+    hr_disposicion = models.DecimalField(max_digits=12, decimal_places=2, default=0.00)
+    espada = models.BooleanField(default=False)
+    puntera = models.BooleanField(default=False)
+    cadena = models.BooleanField(default=False)
+    pinon = models.BooleanField(default=False)
+    cantidad_cadenas = models.IntegerField(default=0)
+    giro_pinon = models.BooleanField(default=False)
+    remito_bitren = models.CharField(max_length=12, null=True, blank=True)
+
+    @property
+    def horas_del_dia(self):
+        return self.hr_fin - self.hr_inicio
 
     class Meta:
         db_table = 'tablero_produccion'
@@ -63,10 +75,14 @@ class Equipo(models.Model):
     ult_hr_km = models.DecimalField(max_digits=12, decimal_places=2, default=0.00)
     tipo_movil = models.ForeignKey(TipoMovil, on_delete=models.CASCADE, db_column='tipo_movil', null=True, blank=True)
     baja = models.BooleanField(default=False)
+    unidad_negocio = models.ForeignKey(UnidadNegocio, on_delete=models.CASCADE, db_column='idUnidadNegocio', null=True, blank=True)
     
     class Meta:
         db_table = 'moviles'     
-        
+    
+    def __str__(self):
+        return f'{self.patente} - {self.detalle}'
+    
 class Empleado(models.Model):
     # Relación con User de Django
     user = models.OneToOneField(User, on_delete=models.CASCADE, null=True, blank=True)
@@ -121,6 +137,21 @@ class ProduccionMensual(models.Model):
     cantidad_equipo = models.IntegerField(default=0)
     unidad_negocio = models.ForeignKey(UnidadNegocio, on_delete=models.CASCADE, db_column='un', null=True, blank=True)
     unidad_produccion = models.CharField(max_length=50, null=True, blank=True)
+    equipo = models.ForeignKey(Equipo, on_delete=models.CASCADE, null=True, blank=True)
 
     class Meta:
         db_table = 'produccion_mensual'        
+        managed = False  # No gestionado por Django
+        
+class Moneda(models.Model):
+    id = models.AutoField(primary_key=True)
+    descripcion = models.CharField(max_length=100, unique=True)
+    simbolo = models.CharField(max_length=10, unique=True)
+    cambio = models.DecimalField(max_digits=10, decimal_places=4)
+    activo = models.BooleanField(default=True)
+
+    def __str__(self):
+        return self.descripcion
+
+    class Meta:
+        db_table = 'moneda'

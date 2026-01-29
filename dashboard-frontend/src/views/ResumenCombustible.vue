@@ -1,6 +1,6 @@
 <!-- src/views/ResumenCombustible.vue -->
 <template>
-  <div class="flex flex-col h-screen bg-gray-50">
+  <div class="flex flex-col h-screen bg-primary-50">
     <!-- Botón para mostrar/ocultar filtros en móvil -->
     <div class="md:hidden px-6 pt-4">
       <button
@@ -69,7 +69,7 @@
           <button
             @click="cargarDatos"
             :disabled="loading"
-            class="w-full bg-blue-600 hover:bg-blue-700 disabled:bg-blue-400 text-white font-medium py-2 px-4 rounded-md text-sm transition"
+            class="w-full bg-primary-600 hover:bg-primary-700 disabled:bg-primary-400 text-white font-medium py-2 px-4 rounded-md text-sm transition"
           >
             {{ loading ? 'Cargando...' : 'Buscar' }}
           </button>
@@ -82,7 +82,7 @@
       <!-- En Ingreso -->
       <div class="bg-white p-4 rounded-lg shadow text-center">
         <h3 class="text-sm font-medium text-gray-500">Ingresos</h3>
-        <p class="text-2xl font-bold text-green-600 flex items-center justify-center gap-1">
+        <p class="text-2xl font-bold text-primary-600 flex items-center justify-center gap-1">
           <i class="fas fa-arrow-up"></i> {{ redondear(totalLitrosIngreso) }} L
         </p>
       </div>
@@ -98,7 +98,7 @@
       <!-- Balance Neto -->
        <div class="bg-white p-4 rounded-lg shadow text-center">
         <h3 class="text-sm font-medium text-gray-500">Balance Neto</h3>
-        <p class="text-2xl font-bold flex items-center justify-center gap-1" :class="balanceNeto >= 0 ? 'text-green-600' : 'text-red-600'">
+        <p class="text-2xl font-bold flex items-center justify-center gap-1" :class="balanceNeto >= 0 ? 'text-primary-600' : 'text-red-600'">
           <i :class="balanceNeto >= 0 ? 'fas fa-arrow-up' : 'fas fa-arrow-down'"></i> {{ redondear(balanceNeto) }} L
         </p>
       </div>
@@ -106,18 +106,18 @@
       <!-- Total Horas/Km -->
       <div class="bg-white p-4 rounded-lg shadow text-center">
         <h3 class="text-sm font-medium text-gray-500">Horas/Km Trabajados</h3>
-        <p class="text-2xl font-bold text-blue-600">{{ redondear(totalHorasKm) }} h/km</p>
+        <p class="text-2xl font-bold text-primary-600">{{ redondear(totalHorasKm) }} h/km</p>
       </div>
       <!-- Consumo Medio -->
       <div class="bg-white p-4 rounded-lg shadow text-center">
         <h3 class="text-sm font-medium text-gray-500">Consumo Medio</h3>
-        <p class="text-2xl font-bold text-green-600">{{ consumoMedioGlobal }} L/h/km</p>
+        <p class="text-2xl font-bold text-primary-600">{{ consumoMedioGlobal }} L/h/km</p>
         <p class="text-xs text-gray-500">litros por hora/km</p>
       </div>
       <!-- Número de Cargas -->
       <div class="bg-white p-4 rounded-lg shadow text-center">
         <h3 class="text-sm font-medium text-gray-500">Cargas Realizadas</h3>
-        <p class="text-2xl font-bold text-purple-600">{{ totalCargas }}</p>
+        <p class="text-2xl font-bold text-primary-600">{{ totalCargas }}</p>
       </div>
     </div>
     <!-- Contenido Principal -->
@@ -140,7 +140,7 @@
       <div class="flex justify-end mb-4">
         <button
           @click="exportarAExcel"
-          class="bg-green-600 hover:bg-green-700 text-white text-sm font-medium py-2 px-4 rounded-md shadow-sm transition flex items-center gap-2"
+          class="bg-primary-600 hover:bg-primary-700 text-white text-sm font-medium py-2 px-4 rounded-md shadow-sm transition flex items-center gap-2"
         >
           <svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
             <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 10v6m0 0l-3-3m3 3l3-3M3 17h18M3 12h18M3 7h18" />
@@ -379,13 +379,13 @@ const chartDataCombustiblePorEquipo = computed(() => {
 
   const datasets = Object.keys(dataPorEquipo).map((equipo, index) => {
     const cores = [
-      'rgba(59, 130, 246, 0.7)',
-      'rgba(16, 185, 129, 0.7)',
-      'rgba(245, 158, 11, 0.7)',
+      'rgba(34, 197, 94, 0.7)',
+      'rgba(34, 197, 94, 0.7)',
+      'rgba(34, 197, 94, 0.7)',
       'rgba(239, 68, 68, 0.7)',
-      'rgba(139, 92, 246, 0.7)',
-      'rgba(14, 165, 233, 0.7)',
-      'rgba(217, 119, 6, 0.7)',
+      'rgba(34, 197, 94, 0.7)',
+      'rgba(34, 197, 94, 0.7)',
+      'rgba(34, 197, 94, 0.7)',
     ]
     const color = cores[index % cores.length]
     return {
@@ -403,8 +403,8 @@ const chartDataCombustiblePorEquipo = computed(() => {
   datasets.push({
     label: `Consumo Medio: ${consumoMedioGlobal.value} L/h`,
     data: fechas.map(() => consumoMedioGlobal.value),
-    borderColor: 'rgba(255, 99, 132, 1)',
-    backgroundColor: 'rgba(255, 99, 132, 0.2)',
+    borderColor: 'rgba(34, 197, 94, 1)',
+    backgroundColor: 'rgba(34, 197, 94, 0.2)',
     borderWidth: 3,
     type: 'line',
     fill: false,
