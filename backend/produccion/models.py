@@ -25,6 +25,27 @@ class TipoMovil(models.Model):
         db_table = 'tipodemovil'
 
 
+class Origen(models.Model):
+    id = models.AutoField(primary_key=True, db_column="idOrigen")
+    origen = models.CharField(max_length=40, db_column="ORIGEN")
+    destino = models.CharField(max_length=40, db_column="DESTINO")
+    kms = models.IntegerField(default=0, db_column="KMS")
+    precio = models.DecimalField(max_digits=12, decimal_places=4, default=0.0000, db_column="PRECIO")
+    km_tierra = models.DecimalField(max_digits=12, decimal_places=2, default=0.00, db_column="KMTIERRA")
+    km_asfalto = models.DecimalField(max_digits=12, decimal_places=2, default=0.00, db_column="KMASFALTO")
+    precosecha = models.DecimalField(max_digits=12, decimal_places=4, default=0.0000, db_column="PRECOSECHA")
+    codigo_destino = models.CharField(max_length=10, db_column="CodigoDestino")
+
+    def __str__(self):
+        return f"{self.origen} → {self.destino}"
+
+    class Meta:
+        db_table = 'origen'
+        managed = False
+        verbose_name = 'Origen'
+        verbose_name_plural = 'Origenes'
+
+
 class RegistroProduccion(models.Model):
     id = models.AutoField(primary_key=True)
     UN = models.CharField(max_length=50)
@@ -59,6 +80,14 @@ class RegistroProduccion(models.Model):
     cantidad_cadenas = models.IntegerField(default=0)
     giro_pinon = models.BooleanField(default=False)
     remito_bitren = models.CharField(max_length=12, null=True, blank=True)
+    origen_camion = models.ForeignKey(
+        Origen,
+        on_delete=models.CASCADE,
+        db_column='origen_camion',
+        null=True,
+        blank=True,
+    )
+    
 
     @property
     def horas_del_dia(self):

@@ -63,6 +63,12 @@ class Command(BaseCommand):
         # Usamos icontains 'CHIPEADO'
         data_chipeado = self.get_production_data(target_date, qs_month, lookup='operacion__icontains', val='CHIPEADO', label="Chipeado")
 
+        # 4b. Resumen Volteo (plantas y producción por hora)
+        data_volteo = self.get_volteo_data(target_date, qs_month)
+
+        # 4c. Resumen Extracción (ciclos / carros extraidos)
+        data_extraccion = self.get_extraccion_data(target_date, qs_month)
+
         # 5. Datos Punto 3: OTROS
         # Excluir PROCESO y CHIPEADO
         # Para "Otros" necesitamos: Total Combustible (Dia, Mes) y Consumo Medio 30 días.
@@ -77,6 +83,8 @@ class Command(BaseCommand):
             data_proceso,
             data_carga,
             data_chipeado,
+            data_volteo,
+            data_extraccion,
             data_otros,
             data_no_op,
         )
@@ -121,16 +129,14 @@ class Command(BaseCommand):
             self.stdout.write(f"Conectando a FTP {ftp_host}...")
             ftp = ftplib.FTP(ftp_host)
             ftp.login(ftp_user, ftp_pass)
-            
+
             if ftp_dir:
                 try:
                     ftp.cwd(ftp_dir)
                 except ftplib.error_perm:
                     self.stdout.write(self.style.WARNING(f"Directorio {ftp_dir} no existe o no accesible. Usando raíz."))
-            
-            # Convert string content to BytesIO
+
             bio = io.BytesIO(content.encode('utf-8'))
-            
             self.stdout.write(f"Subiendo {filename}...")
             ftp.storbinary(f'STOR {filename}', bio)
             ftp.quit()
@@ -139,29 +145,25 @@ class Command(BaseCommand):
             self.stdout.write(self.style.ERROR(f"Error subiendo a FTP: {str(e)}"))
 
     def get_production_data(self, target_date, qs_month, filtro_ops=None, lookup='operacion__in', val=None, label=""):
-        # Construir filtro base
         kwargs = {}
         if filtro_ops:
             kwargs['operacion__in'] = filtro_ops
         elif val:
             kwargs[lookup] = val
-        
-        # Get expected production data for this period
+
         period = target_date.strftime('%Y%m')
         month_start = target_date.replace(day=1)
         month_end = self._get_month_end(target_date)
         business_days_total = self._count_weekdays(month_start, month_end)
         business_days_elapsed = self._count_weekdays(month_start, target_date)
-        
-        # Determine operation key for expected data lookup
+
         if filtro_ops:
             op_key = filtro_ops[0].upper()
         elif val:
             op_key = val.upper()
         else:
             op_key = None
-        
-        # Load expected production from ProduccionMensual
+
         expected_by_equipo = {}
         expected_by_un = {}
         if op_key:
@@ -180,57 +182,49 @@ class Command(BaseCommand):
                             'qty': float(pm.cantidad_equipo or 1.0),
                             'unit': pm.unidad_produccion or ''
                         }
-        # Obtener todos los registros del mes (que incluyen el día)
+
         month_recs = qs_month.filter(**kwargs)
 
-        # Agrupar por Unidad de Negocio, Equipo
-        # Necesitamos saber nombre de UN y Equipo
-        # Vamos a iterar sobre los registros y agrupar manualmente en Python para tener control total
-        # O usar itertools.groupby pero los datos deben estar ordenados.
-        
-        # Optimización: traer solo campos necesarios y nombres relacionados
         data = month_recs.select_related('cod_equipo', 'cod_un').only(
-            'fecha', 'produccion', 'hr_inicio', 'hr_fin', 'combustible', 
+            'fecha', 'produccion', 'hr_inicio', 'hr_fin', 'combustible', 'aceite_cadena',
             'cod_equipo__detalle', 'cod_equipo__patente', 'cod_un__nombre'
         )
 
-        structure = {} # { un_nombre: { equipo_nombre: { month_stats, day_stats } } }
-
+        structure = {}
         for r in data:
             un_name = r.cod_un.nombre if r.cod_un else "Sin UN"
             eq_name = r.cod_equipo.detalle or r.cod_equipo.patente or "Equipo Desconocido"
-            
+
             if un_name not in structure:
                 structure[un_name] = {}
             if eq_name not in structure[un_name]:
                 structure[un_name][eq_name] = {
-                    'day': {'prod': 0.0, 'horas': 0.0, 'comb': 0.0},
-                    'month': {'prod': 0.0, 'horas': 0.0, 'comb': 0.0},
+                    'day': {'prod': 0.0, 'horas': 0.0, 'comb': 0.0, 'oil': 0.0},
+                    'month': {'prod': 0.0, 'horas': 0.0, 'comb': 0.0, 'oil': 0.0},
                     'equipo_id': r.cod_equipo.id if r.cod_equipo else None,
                     'un_id': r.cod_un.id if r.cod_un else None
                 }
-            
-            # Valores
+
             prod = float(r.produccion or 0.0)
             horas = float((r.hr_fin or 0) - (r.hr_inicio or 0))
             comb = float(r.combustible or 0.0)
-            
-            # Acumular Mes
+            oil = float(getattr(r, 'aceite_cadena', 0.0) or 0.0)
+
             structure[un_name][eq_name]['month']['prod'] += prod
             structure[un_name][eq_name]['month']['horas'] += horas
             structure[un_name][eq_name]['month']['comb'] += comb
-            
-            # Acumular Día si coincide
+            structure[un_name][eq_name]['month']['oil'] += oil
+
             if r.fecha == target_date:
                 structure[un_name][eq_name]['day']['prod'] += prod
                 structure[un_name][eq_name]['day']['horas'] += horas
                 structure[un_name][eq_name]['day']['comb'] += comb
+                structure[un_name][eq_name]['day']['oil'] += oil
 
-        # Procesar estructura para calcular KPIs y totales
-        final_data = [] # List of blocks (UN)
+        final_data = []
         grand_total = {
-            'day': {'prod': 0.0, 'horas': 0.0, 'comb': 0.0},
-            'month': {'prod': 0.0, 'horas': 0.0, 'comb': 0.0},
+            'day': {'prod': 0.0, 'horas': 0.0, 'comb': 0.0, 'oil': 0.0},
+            'month': {'prod': 0.0, 'horas': 0.0, 'comb': 0.0, 'oil': 0.0},
             'expected_to_date': 0.0,
             'deviation': 0.0
         }
@@ -240,34 +234,29 @@ class Command(BaseCommand):
                 'name': un_name,
                 'rows': [],
                 'subtotal': {
-                    'day': {'prod': 0.0, 'horas': 0.0, 'comb': 0.0},
-                    'month': {'prod': 0.0, 'horas': 0.0, 'comb': 0.0},
+                    'day': {'prod': 0.0, 'horas': 0.0, 'comb': 0.0, 'oil': 0.0},
+                    'month': {'prod': 0.0, 'horas': 0.0, 'comb': 0.0, 'oil': 0.0},
                     'expected_to_date': 0.0,
                     'deviation': 0.0
                 }
             }
-            
+
             for eq_name, stats in equipos.items():
-                # Calcular KPIs por equipo
                 eq_id = stats.get('equipo_id')
                 un_id = stats.get('un_id')
-                
-                # Get expected production
+
                 expected_month = 0.0
                 if eq_id and eq_id in expected_by_equipo:
                     expected_month = expected_by_equipo[eq_id]['expected']
                 elif un_id and un_id in expected_by_un:
                     un_data = expected_by_un[un_id]
                     expected_month = un_data['expected'] / un_data['qty'] if un_data['qty'] > 0 else 0.0
-                
-                expected_to_date = (
-                    expected_month * business_days_elapsed / business_days_total
-                    if business_days_total > 0 else 0.0
-                )
-                
+
+                expected_to_date = (expected_month * business_days_elapsed / business_days_total) if business_days_total > 0 else 0.0
+
                 actual = stats['month']['prod']
                 deviation = actual - expected_to_date
-                
+
                 row = {
                     'name': eq_name,
                     'day': self._calc_kpis(stats['day']),
@@ -276,31 +265,29 @@ class Command(BaseCommand):
                     'deviation': deviation
                 }
                 un_block['rows'].append(row)
-                
-                # Sumar a subtotal UN
+
                 for t in ['day', 'month']:
                     un_block['subtotal'][t]['prod'] += stats[t]['prod']
                     un_block['subtotal'][t]['horas'] += stats[t]['horas']
                     un_block['subtotal'][t]['comb'] += stats[t]['comb']
-                
+                    un_block['subtotal'][t]['oil'] += stats[t].get('oil', 0.0)
+
                 un_block['subtotal']['expected_to_date'] = un_block['subtotal'].get('expected_to_date', 0.0) + expected_to_date
                 un_block['subtotal']['deviation'] = un_block['subtotal'].get('deviation', 0.0) + deviation
 
-            # Calcular KPIs Subtotal UN
             un_block['subtotal']['day'] = self._calc_kpis(un_block['subtotal']['day'])
             un_block['subtotal']['month'] = self._calc_kpis(un_block['subtotal']['month'])
-            
+
             final_data.append(un_block)
 
-            # Sumar a total general
             for t in ['day', 'month']:
                 grand_total[t]['prod'] += un_block['subtotal'][t]['prod']
                 grand_total[t]['horas'] += un_block['subtotal'][t]['horas']
                 grand_total[t]['comb'] += un_block['subtotal'][t]['comb']
+                grand_total[t]['oil'] += un_block['subtotal'][t].get('oil', 0.0)
             grand_total['expected_to_date'] += un_block['subtotal']['expected_to_date']
             grand_total['deviation'] += un_block['subtotal']['deviation']
 
-        # KPIs Total General
         grand_total['day'] = self._calc_kpis(grand_total['day'])
         grand_total['month'] = self._calc_kpis(grand_total['month'])
 
@@ -314,14 +301,17 @@ class Command(BaseCommand):
         prod = base_data.get('prod', 0.0)
         horas = base_data.get('horas', 0.0)
         comb = base_data.get('comb', 0.0)
-        
+        oil = base_data.get('oil', 0.0)
+
         return {
             'prod': prod,
             'horas': horas,
             'comb': comb,
+            'oil': oil,
             'prod_hr': prod / horas if horas > 0 else 0.0,
             'cons_hr': comb / horas if horas > 0 else 0.0,
-            'cons_unit': comb / prod if prod > 0 else 0.0 # L/M3 or L/TN
+            'cons_unit': comb / prod if prod > 0 else 0.0, # L/M3 or L/TN
+            'oil_hr': oil / horas if horas > 0 else 0.0
         }
 
     def get_others_data(self, target_date, month_start, start_30_days):
@@ -439,6 +429,185 @@ class Command(BaseCommand):
 
         return {'units': final_data, 'total': grand_total}
 
+    def get_volteo_data(self, target_date, qs_month):
+        """Resumen para VOLTEO: contabiliza 'plantas' y producción por hora."""
+        month_start = target_date.replace(day=1)
+
+        month_recs = RegistroProduccion.objects.filter(
+            fecha__gte=month_start,
+            fecha__lte=target_date,
+            operacion__icontains='VOLTEO'
+        ).select_related('cod_equipo', 'cod_un').only(
+            'fecha', 'plantas', 'produccion', 'hr_inicio', 'hr_fin',
+            'cod_equipo__detalle', 'cod_equipo__patente', 'cod_un__nombre'
+        )
+
+        structure = {}
+        for r in month_recs:
+            un_name = r.cod_un.nombre if r.cod_un else 'Sin UN'
+            eq_name = r.cod_equipo.detalle or r.cod_equipo.patente or 'Equipo Desconocido'
+            if un_name not in structure:
+                structure[un_name] = {}
+            if eq_name not in structure[un_name]:
+                structure[un_name][eq_name] = {
+                    'day': {'prod': 0.0, 'horas': 0.0, 'plantas': 0.0},
+                    'month': {'prod': 0.0, 'horas': 0.0, 'plantas': 0.0}
+                }
+
+            prod = float(r.produccion or 0.0)
+            horas = float((r.hr_fin or 0) - (r.hr_inicio or 0))
+            plantas = float(r.plantas or 0.0)
+
+            structure[un_name][eq_name]['month']['prod'] += prod
+            structure[un_name][eq_name]['month']['horas'] += horas
+            structure[un_name][eq_name]['month']['plantas'] += plantas
+
+            if r.fecha == target_date:
+                structure[un_name][eq_name]['day']['prod'] += prod
+                structure[un_name][eq_name]['day']['horas'] += horas
+                structure[un_name][eq_name]['day']['plantas'] += plantas
+
+        final_data = []
+        grand_total = {
+            'day': {'prod': 0.0, 'horas': 0.0, 'plantas': 0.0},
+            'month': {'prod': 0.0, 'horas': 0.0, 'plantas': 0.0}
+        }
+
+        for un_name, equipos in structure.items():
+            un_block = {'name': un_name, 'rows': [], 'subtotal': {'day': {'prod': 0.0, 'horas': 0.0, 'plantas': 0.0}, 'month': {'prod': 0.0, 'horas': 0.0, 'plantas': 0.0}}}
+            for eq_name, stats in equipos.items():
+                d = stats['day']
+                m = stats['month']
+                row = {
+                    'name': eq_name,
+                    'day': {
+                        'prod': d['prod'],
+                        'horas': d['horas'],
+                        'plantas': d['plantas'],
+                        'prod_hr': d['prod'] / d['horas'] if d['horas'] > 0 else 0.0,
+                        'plantas_hr': d['plantas'] / d['horas'] if d['horas'] > 0 else 0.0
+                    },
+                    'month': {
+                        'prod': m['prod'],
+                        'horas': m['horas'],
+                        'plantas': m['plantas'],
+                        'prod_hr': m['prod'] / m['horas'] if m['horas'] > 0 else 0.0,
+                        'plantas_hr': m['plantas'] / m['horas'] if m['horas'] > 0 else 0.0
+                    }
+                }
+                un_block['rows'].append(row)
+                for t in ['day', 'month']:
+                    un_block['subtotal'][t]['prod'] += stats[t]['prod']
+                    un_block['subtotal'][t]['horas'] += stats[t]['horas']
+                    un_block['subtotal'][t]['plantas'] += stats[t]['plantas']
+
+            # calc subtotal kpis
+            final_data.append(un_block)
+            for t in ['day', 'month']:
+                grand_total[t]['prod'] += un_block['subtotal'][t]['prod']
+                grand_total[t]['horas'] += un_block['subtotal'][t]['horas']
+                grand_total[t]['plantas'] += un_block['subtotal'][t]['plantas']
+
+        # add computed rates
+        grand_total['day']['prod_hr'] = grand_total['day']['prod'] / grand_total['day']['horas'] if grand_total['day']['horas'] > 0 else 0.0
+        grand_total['day']['plantas_hr'] = grand_total['day']['plantas'] / grand_total['day']['horas'] if grand_total['day']['horas'] > 0 else 0.0
+        grand_total['month']['prod_hr'] = grand_total['month']['prod'] / grand_total['month']['horas'] if grand_total['month']['horas'] > 0 else 0.0
+        grand_total['month']['plantas_hr'] = grand_total['month']['plantas'] / grand_total['month']['horas'] if grand_total['month']['horas'] > 0 else 0.0
+
+        return {'units': final_data, 'total': grand_total}
+
+    def get_extraccion_data(self, target_date, qs_month):
+        """Resumen para EXTRACCIÓN: ciclos/carros extraidos, m3 y tn, por hora."""
+        month_start = target_date.replace(day=1)
+
+        month_recs = RegistroProduccion.objects.filter(
+            fecha__gte=month_start,
+            fecha__lte=target_date,
+        ).filter(
+            operacion__icontains='EXTRAC'
+        ).select_related('cod_equipo', 'cod_un').only(
+            'fecha', 'm3', 'tn_despachadas', 'produccion', 'hr_inicio', 'hr_fin',
+            'cod_equipo__detalle', 'cod_equipo__patente', 'cod_un__nombre'
+        )
+
+        structure = {}
+        for r in month_recs:
+            un_name = r.cod_un.nombre if r.cod_un else 'Sin UN'
+            eq_name = r.cod_equipo.detalle or r.cod_equipo.patente or 'Equipo Desconocido'
+            if un_name not in structure:
+                structure[un_name] = {}
+            if eq_name not in structure[un_name]:
+                structure[un_name][eq_name] = {
+                    'day': {'ciclos': 0, 'm3': 0.0, 'tn': 0.0, 'horas': 0.0},
+                    'month': {'ciclos': 0, 'm3': 0.0, 'tn': 0.0, 'horas': 0.0}
+                }
+
+            # Usar la produccion como 'ciclos' (sumatoria de produccion por registro)
+            ciclos = float(r.produccion or 0.0)
+            m3 = float(r.m3 or 0)
+            tn = float(r.tn_despachadas or 0.0)
+            horas = float((r.hr_fin or 0) - (r.hr_inicio or 0))
+
+            structure[un_name][eq_name]['month']['ciclos'] += ciclos
+            structure[un_name][eq_name]['month']['m3'] += m3
+            structure[un_name][eq_name]['month']['tn'] += tn
+            structure[un_name][eq_name]['month']['horas'] += horas
+
+            if r.fecha == target_date:
+                structure[un_name][eq_name]['day']['ciclos'] += ciclos
+                structure[un_name][eq_name]['day']['m3'] += m3
+                structure[un_name][eq_name]['day']['tn'] += tn
+                structure[un_name][eq_name]['day']['horas'] += horas
+
+        final_data = []
+        grand_total = {'day': {'ciclos': 0, 'm3': 0.0, 'tn': 0.0, 'horas': 0.0}, 'month': {'ciclos': 0, 'm3': 0.0, 'tn': 0.0, 'horas': 0.0}}
+
+        for un_name, equipos in structure.items():
+            un_block = {'name': un_name, 'rows': [], 'subtotal': {'day': {'ciclos': 0, 'm3': 0.0, 'tn': 0.0, 'horas': 0.0}, 'month': {'ciclos': 0, 'm3': 0.0, 'tn': 0.0, 'horas': 0.0}}}
+            for eq_name, stats in equipos.items():
+                d = stats['day']
+                m = stats['month']
+                row = {
+                    'name': eq_name,
+                    'day': {
+                        'ciclos': d['ciclos'],
+                        'm3': d['m3'],
+                        'tn': d['tn'],
+                        'horas': d['horas'],
+                        'ciclos_hr': d['ciclos'] / d['horas'] if d['horas'] > 0 else 0.0,
+                        'tn_hr': d['tn'] / d['horas'] if d['horas'] > 0 else 0.0
+                    },
+                    'month': {
+                        'ciclos': m['ciclos'],
+                        'm3': m['m3'],
+                        'tn': m['tn'],
+                        'horas': m['horas'],
+                        'ciclos_hr': m['ciclos'] / m['horas'] if m['horas'] > 0 else 0.0,
+                        'tn_hr': m['tn'] / m['horas'] if m['horas'] > 0 else 0.0
+                    }
+                }
+                un_block['rows'].append(row)
+                for t in ['day', 'month']:
+                    un_block['subtotal'][t]['ciclos'] += stats[t]['ciclos']
+                    un_block['subtotal'][t]['m3'] += stats[t]['m3']
+                    un_block['subtotal'][t]['tn'] += stats[t]['tn']
+                    un_block['subtotal'][t]['horas'] += stats[t]['horas']
+
+            final_data.append(un_block)
+            for t in ['day', 'month']:
+                grand_total[t]['ciclos'] += un_block['subtotal'][t]['ciclos']
+                grand_total[t]['m3'] += un_block['subtotal'][t]['m3']
+                grand_total[t]['tn'] += un_block['subtotal'][t]['tn']
+                grand_total[t]['horas'] += un_block['subtotal'][t]['horas']
+
+        # rates
+        grand_total['day']['ciclos_hr'] = grand_total['day']['ciclos'] / grand_total['day']['horas'] if grand_total['day']['horas'] > 0 else 0.0
+        grand_total['day']['tn_hr'] = grand_total['day']['tn'] / grand_total['day']['horas'] if grand_total['day']['horas'] > 0 else 0.0
+        grand_total['month']['ciclos_hr'] = grand_total['month']['ciclos'] / grand_total['month']['horas'] if grand_total['month']['horas'] > 0 else 0.0
+        grand_total['month']['tn_hr'] = grand_total['month']['tn'] / grand_total['month']['horas'] if grand_total['month']['horas'] > 0 else 0.0
+
+        return {'units': final_data, 'total': grand_total}
+
     def get_no_op_data(self, qs_day, qs_month):
         # Group by Equipment
         # Necesitamos saber el nombre del equipo.
@@ -514,7 +683,7 @@ class Command(BaseCommand):
         last_day = calendar.monthrange(date_obj.year, date_obj.month)[1]
         return date_obj.replace(day=last_day)
 
-    def generate_html(self, date_obj, d1, d_carga, d2, d3, d4):
+    def generate_html(self, date_obj, d1, d_carga, d2, d_volteo, d_extraccion, d3, d4):
         
         style = """
         <style>
@@ -537,7 +706,7 @@ class Command(BaseCommand):
                 # Subtotal UN Header
                 rows += f"""
                 <tr style="background-color: #e8f5e9; font-weight: bold;">
-                    <td class="left" colspan="12">{un_block['name']}</td>
+                    <td class="left" colspan="16">{un_block['name']}</td>
                 </tr>
                 """
                 # Equipments
@@ -548,6 +717,8 @@ class Command(BaseCommand):
                         <td>{r['day']['prod']:,.2f}</td>
                         <td>{r['day']['horas']:,.2f}</td>
                         <td>{r['day']['prod_hr']:,.2f}</td>
+                        <td>{r['day'].get('oil',0.0):,.2f}</td>
+                        <td>{r['day'].get('oil_hr',0.0):,.2f}</td>
                         <td>{r['month']['prod']:,.2f}</td>
                         <td>{r['expected_to_date']:,.2f}</td>
                         <td>{r['deviation']:,.2f}</td>
@@ -555,6 +726,8 @@ class Command(BaseCommand):
                         <td>{r['month']['prod_hr']:,.2f}</td>
                         <td>{r['month']['comb']:,.2f}</td>
                         <td>{r['month']['cons_hr']:,.2f}</td>
+                        <td>{r['month'].get('oil',0.0):,.2f}</td>
+                        <td>{r['month'].get('oil_hr',0.0):,.2f}</td>
                         <td>{r['month']['cons_unit']:,.2f}</td>
                     </tr>
                     """
@@ -566,6 +739,8 @@ class Command(BaseCommand):
                     <td>{s['day']['prod']:,.2f}</td>
                     <td>{s['day']['horas']:,.2f}</td>
                     <td>{s['day']['prod_hr']:,.2f}</td>
+                    <td>{s.get('day',{}).get('oil',0.0):,.2f}</td>
+                    <td>{s.get('day',{}).get('oil_hr',0.0):,.2f}</td>
                     <td>{s['month']['prod']:,.2f}</td>
                     <td>{s.get('expected_to_date', 0.0):,.2f}</td>
                     <td>{s.get('deviation', 0.0):,.2f}</td>
@@ -573,6 +748,8 @@ class Command(BaseCommand):
                     <td>{s['month']['prod_hr']:,.2f}</td>
                     <td>{s['month']['comb']:,.2f}</td>
                     <td>{s['month']['cons_hr']:,.2f}</td>
+                    <td>{s.get('month',{}).get('oil',0.0):,.2f}</td>
+                    <td>{s.get('month',{}).get('oil_hr',0.0):,.2f}</td>
                     <td>{s['month']['cons_unit']:,.2f}</td>
                 </tr>
                 """
@@ -585,6 +762,8 @@ class Command(BaseCommand):
                 <td>{t['day']['prod']:,.2f}</td>
                 <td>{t['day']['horas']:,.2f}</td>
                 <td>{t['day']['prod_hr']:,.2f}</td>
+                <td>{t.get('day',{}).get('oil',0.0):,.2f}</td>
+                <td>{t.get('day',{}).get('oil_hr',0.0):,.2f}</td>
                 <td>{t['month']['prod']:,.2f}</td>
                 <td>{t.get('expected_to_date', 0.0):,.2f}</td>
                 <td>{t.get('deviation', 0.0):,.2f}</td>
@@ -592,6 +771,8 @@ class Command(BaseCommand):
                 <td>{t['month']['prod_hr']:,.2f}</td>
                 <td>{t['month']['comb']:,.2f}</td>
                 <td>{t['month']['cons_hr']:,.2f}</td>
+                <td>{t['month'].get('oil',0.0):,.2f}</td>
+                <td>{t['month'].get('oil_hr',0.0):,.2f}</td>
                 <td>{t['month']['cons_unit']:,.2f}</td>
             </tr>
             """
@@ -601,13 +782,15 @@ class Command(BaseCommand):
             <table>
                 <tr>
                     <th rowspan="2">Equipo / UN</th>
-                    <th colspan="3">Diario ({date_obj.strftime('%d/%m')})</th>
-                    <th colspan="8">Acumulado Mes</th>
+                    <th colspan="5">Diario ({date_obj.strftime('%d/%m')})</th>
+                    <th colspan="10">Acumulado Mes</th>
                 </tr>
                 <tr>
                     <th>Prod ({unit})</th>
                     <th>Horas</th>
                     <th>Prod/Hr</th>
+                    <th>Aceite Cad (L)</th>
+                    <th>Aceite L/Hr</th>
                     <th>Prod ({unit})</th>
                     <th>Esperado</th>
                     <th>Desvío</th>
@@ -615,7 +798,127 @@ class Command(BaseCommand):
                     <th>Prod/Hr</th>
                     <th>Consumo (L)</th>
                     <th>L/Hr</th>
+                    <th>Aceite Cad (L)</th>
+                    <th>Aceite L/Hr</th>
                     <th>L/{unit}</th>
+                </tr>
+                {rows}
+            </table>
+            """
+
+        # Tabla Volteo
+        def render_volteo_table(title, data):
+            rows = ""
+            for un_block in data['units']:
+                rows += f"""
+                <tr style=\"background-color: #e8f5e9; font-weight: bold;\">
+                    <td class=\"left\" colspan=6>{un_block['name']}</td>
+                </tr>
+                """
+                for r in un_block['rows']:
+                    rows += f"""
+                    <tr>
+                        <td class=\"left\" style=\"padding-left: 20px;\">{r['name']}</td>
+                        <td>{r['day']['plantas']:,.2f}</td>
+                        <td>{r['day']['horas']:,.2f}</td>
+                        <td>{r['day']['prod_hr']:,.2f}</td>
+                        <td>{r['month']['plantas']:,.2f}</td>
+                        <td>{r['month']['prod_hr']:,.2f}</td>
+                    </tr>
+                    """
+                s = un_block['subtotal']
+                rows += f"""
+                <tr style=\"background-color: #f1f8e9; font-style: italic;\">
+                    <td class=\"left\">Subtotal {un_block['name']}</td>
+                    <td>{s['day']['plantas']:,.2f}</td>
+                    <td>{s['day']['horas']:,.2f}</td>
+                    <td>{(s['day']['prod']/s['day']['horas']) if s['day']['horas']>0 else 0.0:,.2f}</td>
+                    <td>{s['month']['plantas']:,.2f}</td>
+                    <td>{(s['month']['prod']/s['month']['horas']) if s['month']['horas']>0 else 0.0:,.2f}</td>
+                </tr>
+                """
+
+            t = data['total']
+            rows += f"""
+            <tr style=\"background-color: #c8e6c9; font-weight: bold; border-top: 2px solid #4CAF50;\">
+                <td class=\"left\">TOTAL GENERAL</td>
+                <td>{t['day']['plantas']:,.2f}</td>
+                <td>{t['day']['horas']:,.2f}</td>
+                <td>{t['day']['prod_hr']:,.2f}</td>
+                <td>{t['month']['plantas']:,.2f}</td>
+                <td>{t['month']['prod_hr']:,.2f}</td>
+            </tr>
+            """
+
+            return f"""
+            <h2>{title}</h2>
+            <table>
+                <tr>
+                    <th class=\"left\">Equipo / UN</th>
+                    <th>Plantas Diario</th>
+                    <th>Horas Diario</th>
+                    <th>Prod/Hr Diario</th>
+                    <th>Plantas Mes</th>
+                    <th>Prod/Hr Mes</th>
+                </tr>
+                {rows}
+            </table>
+            """
+
+        # Tabla Extracción
+        def render_extraccion_table(title, data):
+            rows = ""
+            for un_block in data['units']:
+                rows += f"""
+                <tr style=\"background-color: #e8f5e9; font-weight: bold;\">
+                    <td class=\"left\" colspan=6>{un_block['name']}</td>
+                </tr>
+                """
+                for r in un_block['rows']:
+                    rows += f"""
+                    <tr>
+                        <td class=\"left\" style=\"padding-left: 20px;\">{r['name']}</td>
+                        <td>{r['day']['ciclos']:,.2f}</td>
+                        <td>{r['day']['horas']:,.2f}</td>
+                        <td>{r['day']['ciclos_hr']:,.2f}</td>
+                        <td>{r['month']['ciclos']:,.2f}</td>
+                        <td>{r['month']['ciclos_hr']:,.2f}</td>
+                    </tr>
+                    """
+                s = un_block['subtotal']
+                rows += f"""
+                <tr style=\"background-color: #f1f8e9; font-style: italic;\">
+                    <td class=\"left\">Subtotal {un_block['name']}</td>
+                    <td>{s['day']['ciclos']:,.2f}</td>
+                    <td>{s['day']['horas']:,.2f}</td>
+                    <td>{(s['day']['ciclos']/s['day']['horas']) if s['day']['horas']>0 else 0.0:,.2f}</td>
+                    <td>{s['month']['ciclos']:,.2f}</td>
+                    <td>{(s['month']['ciclos']/s['month']['horas']) if s['month']['horas']>0 else 0.0:,.2f}</td>
+                </tr>
+                """
+
+            t = data['total']
+            rows += f"""
+            <tr style=\"background-color: #c8e6c9; font-weight: bold; border-top: 2px solid #4CAF50;\">
+                <td class=\"left\">TOTAL GENERAL</td>
+                <td>{t['day']['ciclos']:,.2f}</td>
+                <td>{t['day']['horas']:,.2f}</td>
+                <td>{t.get('day', {}).get('ciclos_hr',0.0):,.2f}</td>
+                <td>{t['month']['ciclos']:,.2f}</td>
+                <td>{t['month'].get('ciclos_hr', (t['month']['ciclos']/t['month']['horas'] if t['month']['horas']>0 else 0.0) ):,.2f}</td>
+            </tr>
+            """
+
+            return f"""
+            <h2>{title}</h2>
+            <table>
+                <tr>
+                    <th class=\"left\">Equipo / UN</th>
+                    <th>Ciclos Diario</th>
+                    <th>Horas Diario</th>
+                    <th>Ciclos/Hr Diario</th>
+                    <th>Ciclos Mes</th>
+                    <th>Ciclos/Hr Mes</th>
                 </tr>
                 {rows}
             </table>
@@ -719,6 +1022,8 @@ class Command(BaseCommand):
             {render_prod_table("1. Operación de Proceso", d1)}
             {render_prod_table("2. Carga", d_carga)}
             {render_prod_table("3. Chipeado", d2)}
+            {render_volteo_table("4. Volteo", d_volteo)}
+            {render_extraccion_table("5. Extracción", d_extraccion)}
             {table3}
             {table4}
             <p><small>Generado automáticamente el {datetime.now().strftime('%d/%m/%Y %H:%M')}</small></p>

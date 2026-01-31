@@ -244,7 +244,7 @@ class FiltrosDinamicosView(APIView):
                 "predios": []
             })
 
-        registros = RegistroProduccion.objects.filter(filtro).select_related('cod_equipo', 'cod_un')
+        registros = RegistroProduccion.objects.filter(filtro).select_related('cod_equipo', 'cod_un', 'origen_camion')
 
         # Obtener opciones únicas
         operaciones = list(registros.values_list('operacion', flat=True).distinct().order_by('operacion'))
@@ -622,7 +622,12 @@ class ProduccionDashboardView(APIView):
         if acta:
             filtro &= Q(acta=acta)
 
-        registros = RegistroProduccion.objects.filter(filtro).select_related('cod_equipo', 'cod_un')
+        # Ordenar por fecha y hora de fin para evitar resultados inconsistentes
+        registros = RegistroProduccion.objects.filter(filtro).select_related('cod_equipo', 'cod_un').order_by('-fecha', '-hr_fin')
+
+        # Dataset completo para gráficos (sin paginar). Orden ascendente para series temporales.
+        registros_grafico_qs = RegistroProduccion.objects.filter(filtro).select_related('cod_equipo', 'cod_un').order_by('fecha', 'hr_fin')
+        registros_grafico = RegistroProduccionDiarioSerializer(registros_grafico_qs, many=True).data
         # =======================
         # 3. Calcular producción esperada acumulada
         # =======================
@@ -714,7 +719,7 @@ class ProduccionDashboardView(APIView):
         # =======================
         # 6. Filtros dinámicos
         # =======================
-        registros_filtro = RegistroProduccion.objects.filter(filtro).select_related('cod_equipo')
+        registros_filtro = RegistroProduccion.objects.filter(filtro).select_related('cod_equipo', 'origen_camion')
 
         operaciones = list(registros_filtro.values_list('operacion', flat=True).distinct().order_by('operacion'))
         unidades = list(registros_filtro.values_list('cod_un__nombre', flat=True).distinct().order_by('cod_un__nombre'))
@@ -738,6 +743,7 @@ class ProduccionDashboardView(APIView):
                 "unidad_produccion": unidad_produccion,
                 "consumo_combustible_total": round(total_consumo, 2),
                 "consumo_combustible_por_dia": consumo_por_dia,
+                "registros_grafico": registros_grafico,
                 "filtros": {
                     "operaciones": [op for op in operaciones if op],
                     "unidades": [u for u in unidades if u],
@@ -755,6 +761,7 @@ class ProduccionDashboardView(APIView):
         results = serializer.data
         return Response({
             "results": results,
+            "registros_grafico": registros_grafico,
             "produccion_esperada_acumulada": produccion_esperada_acumulada,
             "produccion_esperada_por_dia": produccion_esperada_por_dia,
             "unidad_produccion": unidad_produccion,

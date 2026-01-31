@@ -52,6 +52,8 @@ class RegistroProduccionSerializer(serializers.ModelSerializer):
     equipo_patente = serializers.CharField(source='cod_equipo.patente', read_only=True)
     equipo_detalle = serializers.CharField(source='cod_equipo.detalle', read_only=True)
     unidad_negocio_detalle = serializers.CharField(source='cod_un.nombre', read_only=True)
+    origen = serializers.SerializerMethodField()
+    destino = serializers.SerializerMethodField()
 
     class Meta:
         model = RegistroProduccion
@@ -81,7 +83,25 @@ class RegistroProduccionSerializer(serializers.ModelSerializer):
             'aceite_hidraulico',
             'unidad_negocio_detalle',
             'remito_bitren',
+            'origen',
+            'destino',
         ]        
+
+    def get_origen(self, obj):
+        if not getattr(obj, 'origen_camion_id', None):
+            return None
+        try:
+            return obj.origen_camion.origen
+        except Exception:
+            return None
+
+    def get_destino(self, obj):
+        if not getattr(obj, 'origen_camion_id', None):
+            return None
+        try:
+            return obj.origen_camion.destino
+        except Exception:
+            return None
         
 class CargaCombustibleSerializer(serializers.ModelSerializer):
     movil_detalle = serializers.CharField(source='equipo.detalle', read_only=True)
