@@ -68,6 +68,7 @@ class RegistroProduccion(models.Model):
     combustible = models.DecimalField(max_digits=12, decimal_places=2, default=0.00)
     aceite_cadena = models.DecimalField(max_digits=12, decimal_places=2, default=0.00)
     aceite_hidraulico = models.DecimalField(max_digits=12, decimal_places=2, default=0.00)
+    tarifa = models.DecimalField(max_digits=12, decimal_places=2, default=0.00, null=True, blank=True)
     predio = models.CharField(max_length=50, null=True, blank=True)
     stock_abc = models.DecimalField(max_digits=12, decimal_places=2, default=0.00)
     acta = models.CharField(max_length=50, null=True, blank=True)
@@ -87,7 +88,6 @@ class RegistroProduccion(models.Model):
         null=True,
         blank=True,
     )
-    
 
     @property
     def horas_del_dia(self):
@@ -167,6 +167,7 @@ class ProduccionMensual(models.Model):
     unidad_negocio = models.ForeignKey(UnidadNegocio, on_delete=models.CASCADE, db_column='un', null=True, blank=True)
     unidad_produccion = models.CharField(max_length=50, null=True, blank=True)
     equipo = models.ForeignKey(Equipo, on_delete=models.CASCADE, null=True, blank=True)
+    tarifa = models.DecimalField(max_digits=12, decimal_places=2, default=0.00)
 
     class Meta:
         db_table = 'produccion_mensual'        

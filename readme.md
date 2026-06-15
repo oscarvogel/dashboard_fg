@@ -85,3 +85,18 @@ npm run dev
 
 ---
 Actualizado: instrucciones de instalación, ejecución y resumen técnico.
+
+## Últimas modificaciones (enero 2026)
+- Se agregó el comando `reporte_diario` con ampliaciones:
+	- Resumen de `Volteo`: contabiliza `plantas` por equipo/UN y calcula producción por hora.
+	- Resumen de `Extracción`: muestra `ciclos` (sumatoria de `produccion`) por equipo/UN, junto con ciclos/hr y acumulado mensual.
+	- `Proceso`: ahora incluye seguimiento de `aceite_cadena` (litros) y cálculo de `Aceite L/Hr`; las columnas de aceite se muestran únicamente en la tabla `Proceso`.
+	- Se añadió manejo de `Carga` y `Chipeado` usando la misma rutina de cálculo de KPIs.
+	- Mejoras en la generación de HTML: tablas separadas para Proceso, Volteo, Extracción y Otros; se arreglaron errores de templates y se limpió la subida FTP.
+- Se corrigieron bugs y se añadieron pruebas manuales ejecutando `py manage.py reporte_diario` (nota: requiere activar virtualenv).
+
+Cambios importantes en código:
+- Archivo principal del comando: `backend/produccion/management/commands/reporte_diario.py` (se agregaron funciones `get_volteo_data`, `get_extraccion_data`, y se restauró/ajustó `get_production_data`).
+- La subida FTP ahora maneja errores y escribe un archivo local si faltan credenciales.
+
+Por favor, revisá `backend/produccion/management/commands/reporte_diario.py` para más detalles y valida en tu entorno (activar virtualenv antes de ejecutar).

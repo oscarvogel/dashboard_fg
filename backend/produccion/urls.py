@@ -1,5 +1,5 @@
 from django.urls import path, include
-from .views import CargasCombustibleView, EmpleadoViewSet, EquiposPorUNView, FiltrosCombustibleView, FiltrosDinamicosView, HorasNoOperativasDashboardView, LoginEmpleadoView, ProduccionDashboardView, ProduccionOperadorView, RegistrosEmpleadoViewSet, ResumenOperacionalView, maquinas_por_frente_operador, resumen_maquinas_componentes
+from .views import CargasCombustibleView, EmpleadoViewSet, EquiposPorUNView, FiltrosCombustibleView, FiltrosDinamicosView, HorasNoOperativasDashboardView, LoginEmpleadoView, ProduccionDashboardView, ProduccionEjecutivaView, ProduccionOperadorView, RegistrosEmpleadoViewSet, ResumenOperacionalView, UnidadesNegocioActivasView, maquinas_por_frente_operador, resumen_maquinas_componentes
 from rest_framework.routers import DefaultRouter
 
 router = DefaultRouter()
@@ -12,6 +12,8 @@ urlpatterns = [
     path('produccion/', ProduccionOperadorView.as_view(), name='produccion_operador'),
     # path('produccion-dashboard/', ProduccionListView.as_view(), name='produccion-list'),
     path('produccion-dashboard/', ProduccionDashboardView.as_view(), name='produccion-list'),
+    path('produccion-ejecutiva/', ProduccionEjecutivaView.as_view(), name='produccion-ejecutiva'),
+    path('produccion-ejecutiva-filtros/', UnidadesNegocioActivasView.as_view(), name='produccion-ejecutiva-filtros'),
     path('filtros/', FiltrosDinamicosView.as_view(), name='filtros-dinamicos'),
     path('resumen-operacional/', ResumenOperacionalView.as_view(), name='resumen-operacional'),
     path('filtros-combustible/', FiltrosCombustibleView.as_view(), name='filtros-combustible'),

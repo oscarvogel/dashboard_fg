@@ -404,9 +404,13 @@
         <!-- Tabla -->
         <div class="bg-white shadow rounded-lg overflow-hidden">
           <!-- Botón Exportar a Excel -->
-          <div class="flex justify-end mb-4">
+          <div class="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3 mb-4">
+            <div class="text-sm text-gray-600">
+              Total registros filtrados: <span class="font-semibold">{{ totalRegistros }}</span>
+            </div>
             <button
               @click="exportarRegistrosAExcel"
+              :disabled="totalRegistros === 0"
               class="bg-primary-600 hover:bg-primary-700 text-white text-sm font-medium py-2 px-4 rounded-md shadow-sm transition flex items-center gap-2"
             >
               <i class="fas fa-file-excel"></i>
@@ -477,7 +481,7 @@
                 </tr>
               </thead>
               <tbody class="divide-y divide-gray-100">
-                <tr v-for="r in cargasParaTabla" :key="r.id" class="hover:bg-primary-50 even:bg-gray-50">
+                <tr v-for="r in cargasPaginaActual" :key="r.id" class="hover:bg-primary-50 even:bg-gray-50">
                   <td class="px-6 py-4 text-sm text-gray-800">{{ r.fecha }}</td>
                   <td class="px-6 py-4 text-sm text-gray-800">{{ r.hr_inicio }}</td>
                   <td class="px-6 py-4 text-sm text-gray-800">{{ r.hr_fin }}</td>
@@ -489,6 +493,40 @@
                 </tr>
               </tbody>
             </table>
+          </div>
+          <div v-if="!loading && totalRegistros > 0" class="border-t border-gray-200 px-4 py-3 flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
+            <div class="text-sm text-gray-600">
+              Mostrando {{ inicioPagina }}-{{ finPagina }} de {{ totalRegistros }}
+            </div>
+            <div class="flex items-center gap-3">
+              <label class="text-sm text-gray-600" for="filasPorPagina">Filas:</label>
+              <select
+                id="filasPorPagina"
+                v-model.number="filasPorPagina"
+                class="border border-gray-300 rounded px-2 py-1 text-sm"
+              >
+                <option :value="10">10</option>
+                <option :value="20">20</option>
+                <option :value="50">50</option>
+                <option :value="100">100</option>
+              </select>
+
+              <button
+                @click="irPaginaAnterior"
+                :disabled="paginaActual === 1"
+                class="px-3 py-1 text-sm border border-gray-300 rounded disabled:opacity-40"
+              >
+                Anterior
+              </button>
+              <span class="text-sm text-gray-700">Página {{ paginaActual }} / {{ totalPaginas }}</span>
+              <button
+                @click="irPaginaSiguiente"
+                :disabled="paginaActual === totalPaginas"
+                class="px-3 py-1 text-sm border border-gray-300 rounded disabled:opacity-40"
+              >
+                Siguiente
+              </button>
+            </div>
           </div>
           <div v-if="loading" class="flex justify-center items-center py-6">
             <svg class="animate-spin h-5 w-5 text-primary-600 mr-2" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
@@ -542,19 +580,67 @@ const predios = ref([])
 const unidad_produccion = ref('')
 
 const registros = ref([])
+const registrosResumen = ref([])
 const loading = ref(false)
 const loadingFiltros = ref(false)
 const showSidebar = ref(false)
 const isMobile = computed(() => window.innerWidth < 1024)
+const paginaActual = ref(1)
+const filasPorPagina = ref(20)
+const totalRegistros = ref(0)
+
+const normalizarFiltrosParaApi = () => {
+  const params = { ...filters.value }
+
+  if (Array.isArray(params.cod_un) && params.cod_un.length > 0) {
+    params.cod_un = params.cod_un.join(',')
+  } else {
+    delete params.cod_un
+  }
+
+  if (Array.isArray(params.operacion) && params.operacion.length > 0) {
+    params.operacion = params.operacion.join(',')
+  } else {
+    delete params.operacion
+  }
+
+  return params
+}
+
+const obtenerTodosLosRegistrosFiltrados = async (paramsBase) => {
+  const pageSize = 100
+  let firstResponse = null
+  const resultados = []
+
+  const primeraResponse = await api.get('/api/produccion-dashboard/', {
+    params: { ...paramsBase, page_size: pageSize, page: 1 }
+  })
+
+  firstResponse = primeraResponse.data
+  resultados.push(...(primeraResponse.data?.results || []))
+
+  const totalPages = Number(primeraResponse.data?.total_pages || 1)
+
+  for (let page = 2; page <= totalPages; page += 1) {
+    const response = await api.get('/api/produccion-dashboard/', {
+      params: { ...paramsBase, page_size: pageSize, page }
+    })
+    resultados.push(...(response.data?.results || []))
+  }
+
+  return {
+    datosMeta: firstResponse || {},
+    registros: resultados
+  }
+}
 
 // KPIs
 const totalProduccion = computed(() => {
-  return registros.value.reduce((sum, r) => sum + parseFloat(r.produccion || 0), 0)
+  return registrosResumen.value.reduce((sum, r) => sum + parseFloat(r.produccion || 0), 0)
 })
 
 const totalHrsDisposicion = computed(() => {
-  // console.log('registros.value:', registros.value)
-  return registros.value.reduce((sum, r) => sum + parseFloat(r.hr_disposicion || 0), 0)
+  return registrosResumen.value.reduce((sum, r) => sum + parseFloat(r.hr_disposicion || 0), 0)
 })
 
 const desvioAbsoluto = computed(() => {
@@ -571,20 +657,20 @@ const desvioPorcentual = computed(() => {
 })
 
 const totalStockABC = computed(() => {
-  if (registros.value.length === 0) return 0
-  const fechaMaxima = registros.value.reduce((max, r) => (r.fecha > max ? r.fecha : max), '')
-  return registros.value
+  if (registrosResumen.value.length === 0) return 0
+  const fechaMaxima = registrosResumen.value.reduce((max, r) => (r.fecha > max ? r.fecha : max), '')
+  return registrosResumen.value
     .filter(r => r.fecha === fechaMaxima)
     .reduce((sum, r) => sum + (parseFloat(r.stock_abc) || 0), 0)
 })
 const totalHrsNoOperativas = computed(() => {
-  return registros.value.reduce((sum, r) => sum + parseFloat(r.hrs_no_operativas || 0), 0)
+  return registrosResumen.value.reduce((sum, r) => sum + parseFloat(r.hrs_no_operativas || 0), 0)
 })
 // const totalCombustible = computed(() => {
 //   return registros.value.reduce((sum, r) => sum + parseFloat(r.combustible || 0), 0)
 // })
 const totalHoras = computed(() => {
-  return registros.value.reduce((sum, r) => {
+  return registrosResumen.value.reduce((sum, r) => {
     const inicio = parseFloat(r.hr_inicio || 0)
     const fin = parseFloat(r.hr_fin || 0)
     return sum + Math.max(0, fin - inicio)
@@ -633,7 +719,7 @@ const iconoCumplimiento = computed(() => {
 
 const chartDataAcumulado = computed(() => {
   const data = {}
-  registros.value.forEach(r => {
+  registrosResumen.value.forEach(r => {
     const fecha = r.fecha || 'Sin fecha'
     if (!data[fecha]) {
       data[fecha] = { produccion: 0 }
@@ -735,7 +821,7 @@ const chartOptionsAcumulado = {
 // Gráfico Producción y Horas
 const chartDataProduccionHoras = computed(() => {
   const data = {}
-  registros.value.forEach(r => {
+  registrosResumen.value.forEach(r => {
     const fecha = r.fecha || 'Sin fecha'
     if (!data[fecha]) data[fecha] = { produccion: 0, horas: 0 }
     data[fecha].produccion += parseFloat(r.produccion || 0)
@@ -818,7 +904,7 @@ const chartOptionsProduccionHoras = {
 // Otros gráficos
 const chartDataCombustible = computed(() => {
   const data = {}
-  registros.value.forEach(r => {
+  registrosResumen.value.forEach(r => {
     const fecha = r.fecha || 'Sin fecha'
     data[fecha] = (data[fecha] || 0) + parseFloat(r.combustible || 0)
   })
@@ -831,7 +917,7 @@ const chartDataCombustible = computed(() => {
 const chartDataConsumoHora = computed(() => {
   const dataPorFecha = {}
 
-  registros.value.forEach(r => {
+  registrosResumen.value.forEach(r => {
     const fecha = r.fecha || 'Sin fecha'
     if (!dataPorFecha[fecha]) dataPorFecha[fecha] = { combustible: 0, horas: 0 }
 
@@ -889,18 +975,7 @@ const cargarFiltros = async () => {
   if (!filters.value.start_date || !filters.value.end_date) return
   loadingFiltros.value = true
   try {
-    const params = { ...filters.value }
-    // Convertir arrays a strings separados por comas para el backend
-    if (Array.isArray(params.cod_un) && params.cod_un.length > 0) {
-      params.cod_un = params.cod_un.join(',')
-    } else {
-      delete params.cod_un
-    }
-    if (Array.isArray(params.operacion) && params.operacion.length > 0) {
-      params.operacion = params.operacion.join(',')
-    } else {
-      delete params.operacion
-    }
+    const params = normalizarFiltrosParaApi()
     if (!params.un) delete params.un
     const response = await api.get('/api/filtros/', { params })
     unidades.value = response.data.unidades || []
@@ -917,28 +992,26 @@ const cargarFiltros = async () => {
 }
 
 // Cargar producción
-const fetchProduccion = async () => {
+const fetchProduccion = async (actualizarResumen = false) => {
   loading.value = true
   try {
-    const params = { ...filters.value }
-    // Convertir arrays a strings separados por comas para el backend
-    if (Array.isArray(params.cod_un) && params.cod_un.length > 0) {
-      params.cod_un = params.cod_un.join(',')
-    } else {
-      delete params.cod_un
-    }
-    if (Array.isArray(params.operacion) && params.operacion.length > 0) {
-      params.operacion = params.operacion.join(',')
-    } else {
-      delete params.operacion
-    }
-    
+    const params = normalizarFiltrosParaApi()
+    params.page = paginaActual.value
+    params.page_size = filasPorPagina.value
     const response = await api.get('/api/produccion-dashboard/', { params })
+
     registros.value = response.data.results || []
-    produccionEsperada.value = response.data.produccion_esperada_acumulada || 0
-    produccionEsperadaPorDia.value = response.data.produccion_esperada_por_dia || {}
-    totalCombustible.value = response.data.consumo_combustible_total || 0
-    unidad_produccion.value = response.data.unidad_produccion || ''
+    totalRegistros.value = Number(response.data.count || 0)
+
+    if (actualizarResumen || registrosResumen.value.length === 0) {
+      const { datosMeta, registros: registrosCompletos } = await obtenerTodosLosRegistrosFiltrados(normalizarFiltrosParaApi())
+      registrosResumen.value = registrosCompletos
+      produccionEsperada.value = datosMeta.produccion_esperada_acumulada || 0
+      produccionEsperadaPorDia.value = datosMeta.produccion_esperada_por_dia || {}
+      totalCombustible.value = datosMeta.consumo_combustible_total || 0
+      unidad_produccion.value = datosMeta.unidad_produccion || ''
+    }
+
     showSidebar.value = false
   } catch (error) {
     console.error('Error al cargar producción:', error)
@@ -981,52 +1054,68 @@ onMounted(() => {
   filters.value.start_date = from.toISOString().split('T')[0]
   filters.value.end_date = today.toISOString().split('T')[0]
   cargarFiltros()
-  fetchProduccion()
+  fetchProduccion(true)
 })
 
 const exportarRegistrosAExcel = () => {
-  // Mapea los registros al formato deseado
-  const datos = cargasParaTabla.value.map(r => ({
-    'Fecha': r.fecha,
-    'Hora Inicio': r.hr_inicio,
-    'Hora Fin': r.hr_fin,
-    'Operación': r.operacion,
-    'Unidad de Producción': r.unidad_produccion,
-    'Unidad de Negocio': r.unidad_negocio_detalle,
-    'Equipo': r.equipo_detalle,
-    'Producción': r.produccion
-  }))
+  if (!filters.value.start_date || !filters.value.end_date) return
 
-  // Crear hoja de cálculo
-  const ws = XLSX.utils.json_to_sheet(datos)
+  const params = normalizarFiltrosParaApi()
 
-  // Ajustar ancho de columnas
-  ws['!cols'] = [
-    { wch: 12 }, // Fecha
-    { wch: 15 }, // Hora Inicio
-    { wch: 15 }, // Hora Fin
-    { wch: 15 }, // Operación
-    { wch: 15 }, // Unidad de Producción
-    { wch: 20 }, // Unidad de Negocio
-    { wch: 25 }, // Equipo
-    { wch: 15 }  // Producción
-  ]
+  obtenerTodosLosRegistrosFiltrados(params)
+    .then(({ registros: registrosCompletos }) => {
+      const datos = registrosCompletos.map(r => ({
+        'Fecha': r.fecha,
+        'Hora Inicio': r.hr_inicio,
+        'Hora Fin': r.hr_fin,
+        'Operación': r.operacion,
+        'Unidad de Producción': r.unidad_produccion,
+        'Unidad de Negocio': r.unidad_negocio_detalle,
+        'Equipo': r.equipo_detalle,
+        'Producción': r.produccion
+      }))
 
-  // Crear libro
-  const wb = XLSX.utils.book_new()
-  XLSX.utils.book_append_sheet(wb, ws, 'Registros de Producción')
+      const ws = XLSX.utils.json_to_sheet(datos)
+      ws['!cols'] = [
+        { wch: 12 },
+        { wch: 15 },
+        { wch: 15 },
+        { wch: 15 },
+        { wch: 15 },
+        { wch: 20 },
+        { wch: 25 },
+        { wch: 15 }
+      ]
 
-  // Descargar archivo
-  XLSX.writeFile(wb, `Registros_Produccion_${new Date().toISOString().slice(0,10)}.xlsx`)
+      const wb = XLSX.utils.book_new()
+      XLSX.utils.book_append_sheet(wb, ws, 'Registros de Producción')
+      XLSX.writeFile(wb, `Registros_Produccion_${new Date().toISOString().slice(0,10)}.xlsx`)
+    })
+    .catch((error) => {
+      console.error('Error al exportar Excel:', error)
+    })
 }
 
-const cargasParaTabla = computed(() => {
-  let arr = [...registros.value]
+const irPaginaAnterior = async () => {
+  if (paginaActual.value <= 1) return
+  paginaActual.value -= 1
+  await fetchProduccion(false)
+}
+
+const irPaginaSiguiente = async () => {
+  if (paginaActual.value >= totalPaginas.value) return
+  paginaActual.value += 1
+  await fetchProduccion(false)
+}
+
+const cargasOrdenadas = computed(() => {
+  const arr = [...registros.value]
 
   if (!ordenarPor.value) return arr
 
   arr.sort((a, b) => {
-    let valA, valB
+    let valA
+    let valB
 
     switch (ordenarPor.value) {
       case 'fecha':
@@ -1057,6 +1146,23 @@ const cargasParaTabla = computed(() => {
   return arr
 })
 
+const cargasPaginaActual = computed(() => cargasOrdenadas.value)
+
+const totalPaginas = computed(() => {
+  if (totalRegistros.value === 0) return 1
+  return Math.max(1, Math.ceil(totalRegistros.value / filasPorPagina.value))
+})
+
+const inicioPagina = computed(() => {
+  if (totalRegistros.value === 0) return 0
+  return (paginaActual.value - 1) * filasPorPagina.value + 1
+})
+
+const finPagina = computed(() => {
+  if (totalRegistros.value === 0) return 0
+  return Math.min(paginaActual.value * filasPorPagina.value, totalRegistros.value)
+})
+
 const removeUnidad = (unidadId) => {
   filters.value.cod_un = filters.value.cod_un.filter(id => id != unidadId)
 }
@@ -1065,24 +1171,31 @@ const removeOperacion = (operacion) => {
   filters.value.operacion = filters.value.operacion.filter(op => op !== operacion)
 }
 
-// Método para aplicar filtros y buscar datos
 const aplicarFiltrosYBuscar = async () => {
-  // Primero cargar los filtros dinámicos
+  paginaActual.value = 1
   await cargarFiltros()
-  // Luego buscar los datos de producción
-  await fetchProduccion()
+  await fetchProduccion(true)
 }
 
 const cambiarOrden = (campo) => {
   if (ordenarPor.value === campo) {
-    // Si ya está ordenado por este campo, cambia dirección
     ordenAsc.value = !ordenAsc.value
   } else {
-    // Nuevo campo: orden ascendente por defecto
     ordenarPor.value = campo
     ordenAsc.value = true
   }
 }
+
+watch(filasPorPagina, async () => {
+  paginaActual.value = 1
+  await fetchProduccion(false)
+})
+
+watch(totalPaginas, (nuevoTotal) => {
+  if (paginaActual.value > nuevoTotal) {
+    paginaActual.value = nuevoTotal
+  }
+})
 </script>
 
 <style>

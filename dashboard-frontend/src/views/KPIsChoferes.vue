@@ -1,6 +1,6 @@
 <template>
   <div class="min-h-screen bg-primary-50 py-8 px-4 sm:px-6 lg:px-8">
-    <div class="max-w-6xl mx-auto">
+    <div class="w-full mx-auto max-w-full">
       <h1 class="text-2xl font-extrabold text-gray-900 mb-6">KPIs de los Choferes</h1>
 
       <div class="bg-white shadow rounded-lg p-6 mb-6">
@@ -24,7 +24,7 @@
         <div class="mt-4 flex items-center gap-3">
           <button @click="buscar" :disabled="loading" class="bg-primary-600 text-white px-4 py-2 rounded-md">{{ loading ? 'Cargando...' : 'Buscar' }}</button>
           <button @click="reset" class="bg-gray-200 px-4 py-2 rounded-md">Limpiar</button>
-          <button @click="exportExcel" :disabled="loading || registros.length===0" class="bg-emerald-600 text-white px-4 py-2 rounded-md">Exportar Excel</button>
+                <button @click="exportExcel" :disabled="loading || registrosFull.length===0" class="bg-emerald-600 text-white px-4 py-2 rounded-md">Exportar Excel</button>
         </div>
       </div>
 
@@ -35,6 +35,7 @@
       </div>
 
       <div v-if="loaded && !loading">
+        <div v-if="authError" class="mb-4 p-3 bg-yellow-50 border-l-4 border-yellow-300 text-yellow-700">{{ authError }}</div>
         <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-6 mb-6">
           <div class="kpi-card p-4 rounded-xl shadow text-center transform transition-all duration-300 hover:-translate-y-1 hover:shadow-lg">
             <div class="flex items-center justify-center gap-3">
@@ -161,7 +162,7 @@
                 <td class="px-4 py-2 text-sm text-gray-800">{{ r.unidad_negocio_detalle || r.UN || '-' }}</td>
                 <td class="px-4 py-2 text-sm text-gray-800">{{ r.remito_bitren || r.remito || r.acta || '-' }}</td>
                 <td class="px-4 py-2 text-sm text-gray-800">{{ r.equipo_patente || r.movil_patente || '-' }}</td>
-                <td class="px-4 py-2 text-sm text-gray-800">{{ (r.predio || r.origen || r.destino) ? [r.predio, r.origen, r.destino].filter(Boolean).join(' / ') : '-' }}</td>
+                <td class="px-4 py-2 text-sm text-gray-800">{{ origenDestinoDisplay(r) }}</td>
                 <td class="px-4 py-2 text-sm text-gray-800">{{ r.produccion || r.tn_despachadas || '-' }}</td>
                 <td class="px-4 py-2 text-sm text-gray-800">{{ r.hr_inicio !== undefined ? r.hr_inicio : '-' }}</td>
                 <td class="px-4 py-2 text-sm text-gray-800">{{ r.hr_fin !== undefined ? r.hr_fin : '-' }}</td>
@@ -201,27 +202,36 @@ const endDate = ref(_endDefault)
 const operadores = ref([])
 const selectedChofer = ref('')
 const registros = ref([])
+// registrosFull contiene todos los registros según filtros (sin paginar) — usado para KPIs y export
+const registrosFull = ref([])
+const authError = ref('')
 const loading = ref(false)
 const loaded = ref(false)
 
+// Operación usada para filtrar operadores en el selector (solo choferes de TRANSPORTE)
 const OPERATION_FILTER = 'TRANSPORTE'
+
+// No aplicar filtro de operación fijo por defecto en las búsquedas de la tabla —
+// sólo el selector de operadores debe limitarse a TRANSPORTE
 
 const totalCount = ref(0)
 
 let debounceTimer = null
 
 const buscar = async (opts = {}) => {
+  // Si no se solicita mantener la página, resetear a la primera página
+  if (!opts.keepPage) page.value = 1
   loading.value = true
   loaded.value = false
+  authError.value = ''
   try {
     const params = new URLSearchParams()
     if (startDate.value) params.append('start_date', startDate.value)
     if (endDate.value) params.append('end_date', endDate.value)
     if (selectedChofer.value) params.append('operador', selectedChofer.value)
-    // Filtrar solo operaciones de transporte
-    params.append('operacion', OPERATION_FILTER)
+    // No enviar un filtro de operación por defecto
 
-    // backend paging & filtering
+    // backend paging & filtering (tabla)
     params.append('page', page.value)
     params.append('page_size', pageSize.value)
 
@@ -235,6 +245,8 @@ const buscar = async (opts = {}) => {
 
     const res = await api.get('/api/produccion-dashboard/', { params })
     // Expecting paginated response: { results: [...], count: N }
+    // log response to browser console for debugging
+    try { console.debug('produccion-dashboard response', res.data) } catch (e) {}
     registros.value = res.data.results || res.data || []
     totalCount.value = res.data.count != null ? res.data.count : registros.value.length
     loaded.value = true
@@ -243,8 +255,42 @@ const buscar = async (opts = {}) => {
     registros.value = []
     totalCount.value = 0
     loaded.value = false
+    // detectar 401 y mostrar mensaje de autenticación
+    if (e.response && e.response.status === 401) {
+      authError.value = 'No autenticado. Inicie sesión para ver los datos.'
+    }
   } finally {
     loading.value = false
+  }
+}
+
+// Cargar dataset completo (sin paginar) para gráficos y exportación
+const buscarFull = async () => {
+  try {
+    const params = new URLSearchParams()
+    if (startDate.value) params.append('start_date', startDate.value)
+    if (endDate.value) params.append('end_date', endDate.value)
+    if (selectedChofer.value) params.append('operador', selectedChofer.value)
+    // No enviar un filtro de operación por defecto
+    // pedir muchos registros para obtener el dataset completo
+    params.append('page_size', 999999)
+
+    if (filterText.value) {
+      const q = filterText.value.toString().trim()
+      const match = operadores.value.find(o => o.toString().toLowerCase() === q.toLowerCase())
+      if (match) params.set('operador', match)
+      else params.append('search', q)
+    }
+
+    const res = await api.get('/api/produccion-dashboard/', { params })
+    try { console.debug('produccion-dashboard full response', res.data) } catch (e) {}
+    registrosFull.value = res.data.results || res.data || []
+  } catch (e) {
+    console.error('Error cargando registros completos', e)
+    registrosFull.value = []
+    if (e.response && e.response.status === 401) {
+      authError.value = 'No autenticado. Inicie sesión para exportar y ver todos los datos.'
+    }
   }
 }
 
@@ -263,7 +309,7 @@ const loadOperadores = async () => {
     // si hay fechas, pasar para obtener operadores disponibles en ese rango
     if (startDate.value) params.append('start_date', startDate.value)
     if (endDate.value) params.append('end_date', endDate.value)
-    // pedir solo operadores asociados a TRANSPORTE
+    // solicitar operadores filtrados por operación TRANSPORTE
     params.append('operacion', OPERATION_FILTER)
 
     const res = await api.get('/api/filtros/', { params })
@@ -278,6 +324,7 @@ onMounted(() => {
   loadOperadores()
   // load initial page
   buscar()
+  buscarFull()
 })
 
 // Cuando cambian las fechas, recargar operadores disponibles para ese rango
@@ -286,10 +333,18 @@ watch([startDate, endDate], ([ns, ne]) => {
   // when date range changes, reset page and search
   page.value = 1
   buscar()
+  buscarFull()
+})
+
+// Cuando se selecciona/limpia un chofer, recargar la tabla y dataset completo
+watch(selectedChofer, (nv) => {
+  page.value = 1
+  buscar()
+  buscarFull()
 })
 
 const sumField = (fieldNames) => {
-  return registros.value.reduce((s, r) => {
+  return registrosFull.value.reduce((s, r) => {
     for (const f of fieldNames) {
       const v = parseFloat(r[f])
       if (!isNaN(v)) return s + v
@@ -309,20 +364,20 @@ const horasDelRegistro = (r) => {
 }
 
 const totalKm = computed(() => {
-  return registros.value.reduce((s, r) => s + horasDelRegistro(r), 0)
+  return registrosFull.value.reduce((s, r) => s + horasDelRegistro(r), 0)
 })
 // TN transportadas: usar únicamente el campo `produccion`
 const totalTN = computed(() => {
-  return registros.value.reduce((s, r) => {
+  return registrosFull.value.reduce((s, r) => {
     const v = parseFloat(r.produccion)
     return s + (isNaN(v) ? 0 : v)
   }, 0)
 })
 const totalCombustible = computed(() => sumField(['combustible']))
-const viajes = computed(() => registros.value.length)
+const viajes = computed(() => registrosFull.value.length)
 
 const horasTrabajadas = computed(() => {
-  return registros.value.reduce((sum, r) => {
+  return registrosFull.value.reduce((sum, r) => {
     const hi = parseFloat(r.hr_inicio)
     const hf = parseFloat(r.hr_fin)
     if (!isNaN(hi) && !isNaN(hf) && hf >= hi) return sum + (hf - hi)
@@ -343,8 +398,8 @@ const page = ref(1)
 const pageSize = ref(10)
 const pageSizes = [10, 25, 50]
 
-const nextPage = async () => { if (page.value < totalPages.value) { page.value += 1; await buscar() } }
-const prevPage = async () => { if (page.value > 1) { page.value -= 1; await buscar() } }
+const nextPage = async () => { if (page.value < totalPages.value) { page.value += 1; await buscar({keepPage:true}) } }
+const prevPage = async () => { if (page.value > 1) { page.value -= 1; await buscar({keepPage:true}) } }
 
 const totalPages = computed(() => Math.max(1, Math.ceil((totalCount.value || 0) / pageSize.value)))
 const startItem = computed(() => totalCount.value === 0 ? 0 : (page.value - 1) * pageSize.value + 1)
@@ -354,7 +409,7 @@ const endItem = computed(() => Math.min(totalCount.value, page.value * pageSize.
 watch(filterText, (nv) => {
   page.value = 1
   if (debounceTimer) clearTimeout(debounceTimer)
-  debounceTimer = setTimeout(() => buscar(), 400)
+  debounceTimer = setTimeout(() => { buscar(); buscarFull() }, 400)
 })
 
 // when page size changes, reset page and fetch
@@ -396,11 +451,31 @@ const formatNumber = (v) => {
   return (Math.round((v + Number.EPSILON) * 100) / 100).toLocaleString()
 }
 
+const origenDestinoDisplay = (r) => {
+  const origen = r.origen || r.origen_camion_origen || (r.origen_camion && r.origen_camion.origen)
+  const destino = r.destino || r.origen_camion_destino || (r.origen_camion && r.origen_camion.destino)
+  const parts = [origen, destino].filter(Boolean)
+  return parts.length ? parts.join(' / ') : '-'
+}
+
 const formatDate = (d) => {
   if (!d) return '-'
-  // accept Date or ISO string
+  // Si es string en formato YYYY-MM-DD, parsear en local evitando interpretacion UTC
+  if (typeof d === 'string') {
+    const isoDateOnly = /^\d{4}-\d{2}-\d{2}$/.test(d)
+    if (isoDateOnly) {
+      const [y, m, day] = d.split('-').map(Number)
+      if (!isNaN(y) && !isNaN(m) && !isNaN(day)) {
+        const dd = String(day).padStart(2, '0')
+        const mm = String(m).padStart(2, '0')
+        return `${dd}-${mm}-${y}`
+      }
+    }
+  }
+
+  // Fallback: aceptar Date u otros strings ISO completos
   const dt = typeof d === 'string' ? new Date(d) : d
-  if (Number.isNaN(dt.getTime && dt.getTime())) return d
+  if (!dt || Number.isNaN(dt.getTime && dt.getTime())) return d
   const day = String(dt.getDate()).padStart(2, '0')
   const month = String(dt.getMonth() + 1).padStart(2, '0')
   const year = dt.getFullYear()
@@ -413,12 +488,12 @@ const exportExcel = () => {
     return isNaN(n) ? null : n
   }
 
-  const rows = registros.value.map(r => ({
+  const rows = registrosFull.value.map(r => ({
     Fecha: formatDate(r.fecha),
     'Unidad de Negocio': r.unidad_negocio_detalle || r.UN || null,
     'Nro Remito Bitren': r.remito_bitren || r.remito || r.acta || null,
     'Patente Camión': r.equipo_patente || r.movil_patente || null,
-    'Origen / Destino': (r.predio || r.origen || r.destino) ? [r.predio, r.origen, r.destino].filter(Boolean).join(' / ') : null,
+    'Origen / Destino': origenDestinoDisplay(r) === '-' ? null : origenDestinoDisplay(r),
     'TN (Producción)': parseNum(r.produccion || r.tn_despachadas),
     'Hr Inicio': parseNum(r.hr_inicio),
     'Hr Fin': parseNum(r.hr_fin),

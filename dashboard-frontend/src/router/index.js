@@ -5,7 +5,7 @@ import ResumenOperacional from '../views/ResumenOperacional.vue'
 import ResumenCombustible from '../views/ResumenCombustible.vue'
 import ReporteProduccion from '../views/ReporteProduccion.vue'
 import HorasNoOperativas from '../views/HorasNoOperativas.vue'
-import MaquinasPorFrente from '../views/MaquinasPorFrente.vue' 
+import MaquinasPorFrente from '../views/MaquinasPorFrente.vue'
 import EfectividadServicios from '../views/EfectividadServicios.vue'
 import ResumenMaquinasComponentes from '../views/ResumenMaquinasComponentes.vue'
 import KPIsChoferes from '../views/KPIsChoferes.vue'
@@ -13,15 +13,22 @@ import KPIsChoferes from '../views/KPIsChoferes.vue'
 // Carga diferida para vistas principales
 const LoginView = () => import('../views/LoginView.vue')
 const DashboardView = () => import('../views/DashboardView.vue')
+const ProduccionEjecutivaView = () => import('../views/ProduccionEjecutivaView.vue')
 const MantenimientoKPIs = () => import('../views/MantenimientoKPIs.vue')
 
 const routes = [
   { path: '/', name: 'login', component: LoginView },
-  { 
-    path: '/dashboard', 
-    name: 'dashboard', 
+  {
+    path: '/dashboard',
+    name: 'produccion-ejecutiva',
+    component: ProduccionEjecutivaView,
+    meta: { requiresAuth: true }
+  },
+  {
+    path: '/dashboard-detallado',
+    name: 'dashboard',
     component: DashboardView,
-    meta: { requiresAuth: true } 
+    meta: { requiresAuth: true }
   },
   {
     path: '/mantenimiento-kpis',

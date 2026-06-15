@@ -64,6 +64,29 @@
             </option>
           </select>
         </div>
+        <!-- Stock Inicial -->
+        <div>
+          <label class="block text-sm font-medium text-gray-700 mb-1">Stock Inicial (L)</label>
+          <input
+            v-model.number="filters.initial_stock"
+            type="number"
+            min="0"
+            step="0.01"
+            class="w-full px-3 py-2 border border-gray-300 rounded-md text-sm"
+          />
+        </div>
+        <!-- Lugar de Carga -->
+        <div>
+          <label class="block text-sm font-medium text-gray-700 mb-1">Lugar de Carga</label>
+          <select
+            v-model="filters.lugar_id"
+            class="w-full px-3 py-2 border border-gray-300 rounded-md text-sm"
+          >
+            <option value="">Todos</option>
+            <option v-for="l in lugares" :key="l.id" :value="l.id">{{ l.detalle }}</option>
+          </select>
+        </div>
+
         <!-- Botón buscar -->
         <div class="flex items-end sm:col-span-2 lg:col-span-2">
           <button
@@ -101,6 +124,12 @@
         <p class="text-2xl font-bold flex items-center justify-center gap-1" :class="balanceNeto >= 0 ? 'text-primary-600' : 'text-red-600'">
           <i :class="balanceNeto >= 0 ? 'fas fa-arrow-up' : 'fas fa-arrow-down'"></i> {{ redondear(balanceNeto) }} L
         </p>
+      </div>
+      <!-- Stock Final -->
+       <div class="bg-white p-4 rounded-lg shadow text-center">
+        <h3 class="text-sm font-medium text-gray-500">Stock Final</h3>
+        <p class="text-2xl font-bold text-primary-600">{{ redondear(stockFinal) }} L</p>
+        <p class="text-xs text-gray-500">(Inicial + Ingresos - Egresos)</p>
       </div>
       
       <!-- Total Horas/Km -->
@@ -219,12 +248,15 @@ const filters = ref({
   start_date: '',
   end_date: '',
   un_id: '',
-  movil_id: ''
+  movil_id: '',
+  lugar_id: '',
+  initial_stock: 0
 })
 
 // Datos
 const unidades = ref([])
 const equipos = ref([])
+const lugares = ref([])
 const cargas = ref([])
 const totalLitrosEgreso = ref(0)
 const totalLitrosIngreso = ref(0)
@@ -240,6 +272,7 @@ const cargarUnidades = async () => {
     }
     const response = await api.get('/api/filtros-combustible/', { params })
     unidades.value = response.data.unidades
+    lugares.value = response.data.lugares || []
   } catch (error) {
     console.error('Error al cargar UN:', error)
   }
@@ -333,6 +366,13 @@ const cargarDatos = async () => {
 
 const balanceNeto = computed(() => {
   return totalLitrosIngreso.value - totalLitrosEgreso.value
+})
+
+const stockFinal = computed(() => {
+  const inicial = parseFloat(filters.value.initial_stock) || 0
+  const ingresos = parseFloat(totalLitrosIngreso.value) || 0
+  const egresos = parseFloat(totalLitrosEgreso.value) || 0
+  return parseFloat((inicial + ingresos - egresos).toFixed(2))
 })
 // KPIs Computados
 const totalCargas = computed(() => {
@@ -547,6 +587,7 @@ const exportarAExcel = () => {
   XLSX.utils.book_append_sheet(wb, ws, 'Cargas Combustible')
 
   // Exportar
-  XLSX.writeFile(wb, `Cargas_Combustible_${filters.value.start_date}_a_${filters.value.end_date}.xlsx`)
+  const filename = `Cargas_Combustible_${filters.value.start_date}_a_${filters.value.end_date}_stockFinal_${stockFinal}.xlsx`
+  XLSX.writeFile(wb, filename)
 }
 </script>

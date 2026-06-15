@@ -303,6 +303,8 @@ export default {
 
         console.log('Cargando datos para UN:', this.selectedUN, 'Parámetros:', params.toString());
 
+        params.append('page_size', 100);
+        params.append('page_size', 100);
         const res = await api.get('/api/produccion-dashboard/', { params });
         const registros = res.data.results || [];
 

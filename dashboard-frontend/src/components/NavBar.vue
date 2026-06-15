@@ -71,7 +71,7 @@
                 <button
                   @click.stop="toggleProduccionDropdown"
                   class="flex items-center space-x-2 px-4 py-2 rounded-lg text-sm font-medium hover:bg-white/10 transition-all duration-200 backdrop-blur-sm group"
-                  :class="{ 'bg-emerald-600 text-white font-semibold shadow-lg': $route.path.startsWith('/reporte-produccion') || $route.path.startsWith('/kpis-choferes') }"
+                  :class="{ 'bg-emerald-600 text-white font-semibold shadow-lg': $route.path.startsWith('/reporte-produccion') || $route.path.startsWith('/kpis-choferes') || $route.path.startsWith('/dashboard-detallado') }"
                 >
                   <svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5 text-slate-300 group-hover:text-white transition-colors" viewBox="0 0 24 24" stroke="currentColor" fill="none">
                     <path d="M9 17v-2m3 2v-4m3 4v-6m2 10H7a2 2 0 01-2-2V5a2 2 0 012-2h10a2 2 0 012 2v10a2 2 0 01-2 2z" stroke-linecap="round" stroke-linejoin="round" stroke-width="2" />
@@ -84,6 +84,12 @@
 
                 <div v-show="showProduccionDropdown" class="absolute right-0 mt-2 w-64 bg-white/95 backdrop-blur-lg rounded-xl shadow-2xl border border-gray-200/20 z-50 overflow-hidden">
                   <div class="py-2">
+                    <router-link to="/dashboard-detallado" class="flex items-center space-x-3 px-4 py-3 text-sm text-gray-700 hover:bg-emerald-50 hover:text-emerald-700 transition-all duration-200 group" @click="closeDropdowns">
+                      <div class="p-1 rounded-md bg-gray-100 group-hover:bg-emerald-100 transition-colors">
+                        <svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4 text-gray-600 group-hover:text-emerald-600" viewBox="0 0 24 24" stroke="currentColor" fill="none"><path d="M3 7h18M3 12h18M3 17h18" stroke-linecap="round" stroke-linejoin="round" stroke-width="2"/></svg>
+                      </div>
+                      <span class="font-medium">Dashboard Actual</span>
+                    </router-link>
                     <router-link to="/reporte-produccion" class="flex items-center space-x-3 px-4 py-3 text-sm text-gray-700 hover:bg-emerald-50 hover:text-emerald-700 transition-all duration-200 group" @click="closeDropdowns">
                       <div class="p-1 rounded-md bg-gray-100 group-hover:bg-emerald-100 transition-colors">
                         <svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4 text-gray-600 group-hover:text-emerald-600" viewBox="0 0 24 24" stroke="currentColor" fill="none"><path d="M9 17v-2m3 2v-4m3 4v-6m2 10H7a2 2 0 01-2-2V5a2 2 0 012-2h10a2 2 0 012 2v10a2 2 0 01-2 2z" stroke-linecap="round" stroke-linejoin="round" stroke-width="2"/></svg>
@@ -190,7 +196,7 @@
             <button
               @click="toggleProduccionDropdown"
               class="flex items-center justify-between w-full p-3 rounded-lg hover:bg-white/10 transition-all duration-200"
-              :class="{ 'bg-emerald-600 font-medium shadow-lg': $route.path.startsWith('/reporte-produccion') || $route.path.startsWith('/kpis-choferes') }"
+              :class="{ 'bg-emerald-600 font-medium shadow-lg': $route.path.startsWith('/reporte-produccion') || $route.path.startsWith('/kpis-choferes') || $route.path.startsWith('/dashboard-detallado') }"
             >
               <div class="flex items-center space-x-3">
                 <svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5 text-slate-300" viewBox="0 0 24 24" stroke="currentColor" fill="none">
@@ -203,6 +209,7 @@
               </svg>
             </button>
             <div v-show="showProduccionDropdown" class="ml-6 space-y-1 pl-4 border-l-2 border-emerald-500/30">
+              <router-link to="/dashboard-detallado" class="flex items-center space-x-3 p-2 rounded-lg hover:bg-white/10 transition-all duration-200 text-sm" @click="showMobileMenu = false; closeDropdowns()">Dashboard Actual</router-link>
               <router-link to="/reporte-produccion" class="flex items-center space-x-3 p-2 rounded-lg hover:bg-white/10 transition-all duration-200 text-sm" @click="showMobileMenu = false; closeDropdowns()">Reporte de Producción</router-link>
               <router-link to="/kpis-choferes" class="flex items-center space-x-3 p-2 rounded-lg hover:bg-white/10 transition-all duration-200 text-sm" @click="showMobileMenu = false; closeDropdowns()">KPIs Choferes</router-link>
             </div>
@@ -282,12 +289,20 @@ const empleado = ref(JSON.parse(localStorage.getItem('empleado')))
 // Definición del menú con íconos (usando Heroicons)
 const menuItems = [
   {
-    name: 'Dashboard',
-    path: '/',
+    name: 'Producción Ejecutiva',
+    path: '/dashboard',
     xmlns: 'http://www.w3.org/2000/svg',
     viewBox: '0 0 24 24',
     iconClass: 'h-5 w-5 text-slate-300',
     iconPath: 'M3 12l2-2m0 0l7-7 7 7M5 10v10a1 1 0 001 1h3m10-11l2 2m-2-2v10a1 1 0 01-1 1h-3m-6 0a1 1 0 001-1v-4a1 1 0 011-1h2a1 1 0 011 1v4a1 1 0 001 1m-6 0h6'
+  },
+  {
+    name: 'Dashboard Actual',
+    path: '/dashboard-detallado',
+    xmlns: 'http://www.w3.org/2000/svg',
+    viewBox: '0 0 24 24',
+    iconClass: 'h-5 w-5 text-slate-300',
+    iconPath: 'M3 7h18M3 12h18M3 17h18'
   },
   {
     name: 'Resumen',

@@ -19,8 +19,9 @@ const filters = ref({
 const fetchProduccion = async () => {
   loading.value = true
   try {
-    const response = await api.get('/api/produccion-dashboard/', { params: filters.value })
-    registros.value = response.data.results
+  const params = { ...filters.value, page_size: 100 }
+  const response = await api.get('/api/produccion-dashboard/', { params })
+  registros.value = response.data.results
   } catch (error) {
     console.error('Error al cargar producción:', error)
   } finally {

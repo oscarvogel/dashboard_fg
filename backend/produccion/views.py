@@ -1,6 +1,8 @@
 import calendar
 from rest_framework.decorators import api_view
 from django.http import JsonResponse
+import logging
+import os
 
 from django.shortcuts import render
 from rest_framework_simplejwt.tokens import RefreshToken
@@ -29,6 +31,22 @@ from .serializers import CargaCombustibleSerializer, EmpleadoSerializer, LoginSe
 from django.db.models import Sum, F
 from datetime import datetime
 from datetime import timedelta, date
+
+# logger para esta vista: además guardar en backend/logs/produccion_queries.log
+base_dir = os.path.abspath(os.path.join(os.path.dirname(__file__), '..'))
+logs_dir = os.path.join(base_dir, 'logs')
+os.makedirs(logs_dir, exist_ok=True)
+log_file = os.path.join(logs_dir, 'produccion_queries.log')
+
+logger = logging.getLogger(__name__)
+logger.setLevel(logging.DEBUG)
+# Añadir handler si no existe para evitar duplicados
+if not any(isinstance(h, logging.FileHandler) and getattr(h, 'baseFilename', '') == os.path.abspath(log_file) for h in logger.handlers):
+    fh = logging.handlers.RotatingFileHandler(log_file, maxBytes=5*1024*1024, backupCount=3, encoding='utf-8')
+    fmt = logging.Formatter('%(asctime)s %(levelname)s [%(name)s] %(message)s')
+    fh.setFormatter(fmt)
+    fh.setLevel(logging.DEBUG)
+    logger.addHandler(fh)
 
 class ProduccionOperadorView(APIView):
 
@@ -275,6 +293,274 @@ class FiltrosDinamicosView(APIView):
             "actas": [a for a in actas if a],
             "predios": [p for p in predios if p]
         })
+
+
+class UnidadesNegocioActivasView(APIView):
+    permission_classes = [IsAuthenticated]
+
+    def get(self, request):
+        month = request.GET.get('month')
+        year = request.GET.get('year')
+
+        if not month or not year:
+            return Response(
+                {"error": "Los parámetros 'month' y 'year' son obligatorios."},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        try:
+            month_int = int(month)
+            year_int = int(year)
+            if month_int < 1 or month_int > 12:
+                raise ValueError
+        except ValueError:
+            return Response(
+                {"error": "Parámetros inválidos. Usa month (1-12) y year (YYYY)."},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        start_date = date(year_int, month_int, 1)
+        end_date = date(year_int, month_int, calendar.monthrange(year_int, month_int)[1])
+
+        unidades_qs = (
+            RegistroProduccion.objects
+            .filter(fecha__range=[start_date, end_date], cod_un__isnull=False)
+            .values('cod_un_id', 'cod_un__nombre')
+            .distinct()
+            .order_by('cod_un__nombre')
+        )
+
+        unidades = [
+            {"id": item['cod_un_id'], "nombre": item['cod_un__nombre']}
+            for item in unidades_qs
+            if item['cod_un_id'] and item['cod_un__nombre']
+        ]
+
+        return Response({
+            "unidades": unidades,
+            "periodo": {
+                "start_date": start_date.isoformat(),
+                "end_date": end_date.isoformat(),
+            }
+        })
+
+
+class ProduccionEjecutivaView(APIView):
+    permission_classes = [IsAuthenticated]
+
+    @staticmethod
+    def _safe_float(value):
+        try:
+            return float(value or 0)
+        except (TypeError, ValueError):
+            return 0.0
+
+    @staticmethod
+    def _safe_ratio(numerator, denominator):
+        if denominator <= 0:
+            return 0.0
+        return round(numerator / denominator, 2)
+
+    def get(self, request):
+        month = request.GET.get('month')
+        year = request.GET.get('year')
+        day = request.GET.get('day')
+        cod_un = request.GET.get('cod_un')
+        tipo_operacion = request.GET.get('tipo_operacion', 'PROCESO')  # Por defecto filtrar por PROCESO
+
+        if not month or not year or not cod_un:
+            return Response(
+                {"error": "Los parámetros 'month', 'year' y 'cod_un' son obligatorios."},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        try:
+            month_int = int(month)
+            year_int = int(year)
+            cod_un_id = int(cod_un)
+            if month_int < 1 or month_int > 12:
+                raise ValueError
+        except ValueError:
+            return Response(
+                {"error": "Parámetros inválidos. Usa month (1-12), year (YYYY) y cod_un numérico."},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        if not UnidadNegocio.objects.filter(id=cod_un_id).exists():
+            return Response(
+                {"error": "La unidad de negocio no existe."},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        start_date = date(year_int, month_int, 1)
+        month_end = date(year_int, month_int, calendar.monthrange(year_int, month_int)[1])
+
+        # Queryset base SIN filtro de operación → para detectar cutoff y construir tablas
+        base_qs_all = RegistroProduccion.objects.filter(
+            fecha__range=[start_date, month_end],
+            cod_un_id=cod_un_id,
+        )
+        # Queryset filtrado por tipo_operacion → para KPIs y registros
+        base_qs_kpi = base_qs_all.filter(operacion=tipo_operacion)
+
+        if day:
+            try:
+                day_int = int(day)
+                if day_int < 1 or day_int > month_end.day:
+                    raise ValueError
+                cutoff_date = date(year_int, month_int, day_int)
+            except ValueError:
+                return Response(
+                    {"error": "Parámetro 'day' inválido para el mes seleccionado."},
+                    status=status.HTTP_400_BAD_REQUEST,
+                )
+        else:
+            cutoff_date = base_qs_kpi.aggregate(max_fecha=models.Max('fecha')).get('max_fecha')
+            if not cutoff_date:
+                cutoff_date = month_end
+
+        # filtered_qs para KPIs y registros (con filtro de tipo_operacion)
+        filtered_qs = base_qs_kpi.filter(fecha__lte=cutoff_date).select_related('cod_equipo', 'cod_un').order_by('-fecha', '-hr_fin')
+        # all_filtered_qs para tablas (todos los equipos de la UN)
+        all_filtered_qs = base_qs_all.filter(fecha__lte=cutoff_date).select_related('cod_equipo', 'cod_un').order_by('-fecha', '-hr_fin')
+
+        periodo = cutoff_date.strftime('%Y%m')
+        dias_del_mes = sum(
+            1 for d in range(1, calendar.monthrange(cutoff_date.year, cutoff_date.month)[1] + 1)
+            if date(cutoff_date.year, cutoff_date.month, d).weekday() < 5
+        )
+        dias_habiles_rango = sum(
+            1 for d in range((cutoff_date - start_date).days + 1)
+            if (start_date + timedelta(days=d)).weekday() < 5
+        )
+        proporcion = dias_habiles_rango / dias_del_mes if dias_del_mes > 0 else 0
+
+        queryset_mensual = ProduccionMensual.objects.filter(
+            periodo=periodo,
+            unidad_negocio_id=cod_un_id,
+            tipo_operacion=tipo_operacion,  # Filtrar por tipo de operación (default: PROCESO)
+        )
+
+        unidad_produccion = queryset_mensual.values_list('unidad_produccion', flat=True).distinct().first()
+        if not unidad_produccion:
+            unidad_produccion = (
+                filtered_qs.exclude(unidad_produccion__isnull=True)
+                .exclude(unidad_produccion='')
+                .values_list('unidad_produccion', flat=True)
+                .first()
+            )
+
+        agregado = queryset_mensual.aggregate(
+            meta_mensual=Sum('produccion'),
+        )
+        meta_mensual = self._safe_float(agregado.get('meta_mensual'))
+        produccion_esperada_acumulada = round(meta_mensual * proporcion, 2)
+
+        jornadas = calcular_jornadas_en_rango(start_date, cutoff_date)
+        total_jornadas = sum(jornada for _, jornada in jornadas)
+        if total_jornadas == 0:
+            produccion_esperada_por_dia = {item[0]: 0.0 for item in jornadas}
+        else:
+            produccion_diaria_base = produccion_esperada_acumulada / total_jornadas
+            produccion_esperada_por_dia = {
+                fecha: round(jornada * produccion_diaria_base, 2)
+                for fecha, jornada in jornadas
+            }
+
+        equipos = {}
+        for reg in all_filtered_qs:  # Todos los equipos de la UN (sin filtro de operación)
+            equipo_id = reg.cod_equipo_id or f"sin-equipo-{reg.id}"
+            equipo_nombre = (
+                reg.cod_equipo.detalle if reg.cod_equipo and reg.cod_equipo.detalle
+                else reg.equipo or 'Sin equipo'
+            )
+            horas = max(0.0, self._safe_float(reg.hr_fin) - self._safe_float(reg.hr_inicio))
+            m3 = self._safe_float(reg.m3)
+            combustible = self._safe_float(reg.combustible)
+            produccion = self._safe_float(reg.produccion)
+            plantas = self._safe_float(reg.plantas)
+
+            if equipo_id not in equipos:
+                equipos[equipo_id] = {
+                    'equipo': equipo_nombre,
+                    'unidad_produccion': reg.unidad_produccion or '',
+                    'horas_dia': 0.0,
+                    'combustible_dia': 0.0,
+                    'm3_dia': 0.0,
+                    'produccion_dia': 0.0,
+                    'plantas_dia': 0.0,
+                    'horas_acum': 0.0,
+                    'combustible_acum': 0.0,
+                    'm3_acum': 0.0,
+                    'produccion_acum': 0.0,
+                    'plantas_acum': 0.0,
+                }
+
+            row = equipos[equipo_id]
+            if not row['unidad_produccion'] and reg.unidad_produccion:
+                row['unidad_produccion'] = reg.unidad_produccion
+
+            row['horas_acum'] += horas
+            row['combustible_acum'] += combustible
+            row['m3_acum'] += m3
+            row['produccion_acum'] += produccion
+            row['plantas_acum'] += plantas
+
+            if reg.fecha == cutoff_date:
+                row['horas_dia'] += horas
+                row['combustible_dia'] += combustible
+                row['m3_dia'] += m3
+                row['produccion_dia'] += produccion
+                row['plantas_dia'] += plantas
+
+        tabla_consumo = []
+        tabla_produccion = []
+        for row in sorted(equipos.values(), key=lambda x: x['equipo'].lower()):
+            tabla_consumo.append({
+                'equipo': row['equipo'],
+                'lts_hora_dia': self._safe_ratio(row['combustible_dia'], row['horas_dia']),
+                'lts_hora_acumulado': self._safe_ratio(row['combustible_acum'], row['horas_acum']),
+                'lts_m3_dia': self._safe_ratio(row['combustible_dia'], row['m3_dia']),
+                'lts_m3_acumulado': self._safe_ratio(row['combustible_acum'], row['m3_acum']),
+            })
+
+            tabla_produccion.append({
+                'equipo': row['equipo'],
+                'unidad_produccion': row['unidad_produccion'] or unidad_produccion or '',
+                'produccion_dia': round(row['produccion_dia'], 2),
+                'produccion_acumulada': round(row['produccion_acum'], 2),
+                'produccion_hora_dia': self._safe_ratio(row['produccion_dia'], row['horas_dia']),
+                'produccion_hora_acumulada': self._safe_ratio(row['produccion_acum'], row['horas_acum']),
+                'produccion_arbol_dia': self._safe_ratio(row['produccion_dia'], row['plantas_dia']),
+                'produccion_arbol_acumulada': self._safe_ratio(row['produccion_acum'], row['plantas_acum']),
+            })
+
+        registros_serializados = RegistroProduccionSerializer(filtered_qs, many=True).data
+
+        # Stock ABC: suma del último día con actividad (todos los equipos de la UN)
+        stock_abc_total = all_filtered_qs.filter(fecha=cutoff_date).aggregate(
+            total=Sum('stock_abc')
+        ).get('total') or 0.0
+        stock_abc_total = round(float(stock_abc_total), 2)
+
+        return Response({
+            'periodo': {
+                'month': month_int,
+                'year': year_int,
+                'day_param': int(day) if day else None,
+                'start_date': start_date.isoformat(),
+                'end_date': month_end.isoformat(),
+                'cutoff_date': cutoff_date.isoformat(),
+            },
+            'unidad_negocio': cod_un_id,
+            'unidad_produccion': unidad_produccion or '',
+            'produccion_esperada_acumulada': produccion_esperada_acumulada,
+            'produccion_esperada_por_dia': produccion_esperada_por_dia,
+            'stock_abc_total': stock_abc_total,
+            'registros': registros_serializados,
+            'tabla_consumo': tabla_consumo,
+            'tabla_produccion': tabla_produccion,
+        })
         
         
 class ResumenOperacionalView(APIView):
@@ -394,22 +680,26 @@ class FiltrosCombustibleView(APIView):
         except ValueError:
             return Response({"unidades": []}, status=400)
 
-        # Obtener IDs de UN únicas en el rango
-        unidad_ids = CargaCombustible.objects.filter(
+        # Obtener IDs de UN y Lugares de Carga únicas en el rango
+        cargas_qs = CargaCombustible.objects.filter(
             fecha__range=[start_date, end_date]
-        ).values_list('unidad_negocio', flat=True).distinct()
+        )
 
-        # ✅ CORREGIDO: Filtrar UnidadNegocio por idUnidadNegocio, no por unidad_negocio
+        unidad_ids = cargas_qs.values_list('unidad_negocio', flat=True).distinct()
+        lugar_ids = cargas_qs.values_list('lugar_carga', flat=True).distinct()
+
         unidades = UnidadNegocio.objects.filter(
-            id__in=list(unidad_ids)
+            id__in=[i for i in unidad_ids if i]
         ).order_by('nombre')
 
-        unidades_data = [
-            {"id": u.id, "nombre": u.nombre}
-            for u in unidades
-        ]
+        unidades_data = [{"id": u.id, "nombre": u.nombre} for u in unidades]
 
-        return Response({"unidades": unidades_data})
+        # Obtener lugares de carga disponibles en el rango
+        from .models import LugarCarga
+        lugares = LugarCarga.objects.filter(id__in=[i for i in lugar_ids if i]).order_by('detalle')
+        lugares_data = [{"id": l.id, "detalle": l.detalle} for l in lugares]
+
+        return Response({"unidades": unidades_data, "lugares": lugares_data})
     
 class EquiposPorUNView(APIView):
     permission_classes = [IsAuthenticated]
@@ -464,6 +754,8 @@ class CargasCombustibleView(APIView):
         end_date = request.GET.get('end_date')
         un_id = request.GET.get('un_id')
         movil_id = request.GET.get('movil_id')
+        # Nuevo parámetro: lugar de carga (id)
+        lugar_id = request.GET.get('lugar_id')
 
         if not start_date or not end_date:
             return Response({"error": "start_date y end_date son requeridos"}, status=400)
@@ -481,6 +773,8 @@ class CargasCombustibleView(APIView):
             query = query.filter(unidad_negocio_id=un_id)
         if movil_id:
             query = query.filter(equipo_id=movil_id)
+        if lugar_id:
+            query = query.filter(lugar_carga_id=lugar_id)
 
         # Prefetch o select_related para optimizar consultas
         query = query.select_related('equipo', 'unidad_negocio', 'lugar_carga')
@@ -627,6 +921,14 @@ class ProduccionDashboardView(APIView):
 
         # Dataset completo para gráficos (sin paginar). Orden ascendente para series temporales.
         registros_grafico_qs = RegistroProduccion.objects.filter(filtro).select_related('cod_equipo', 'cod_un').order_by('fecha', 'hr_fin')
+        # Loguear la consulta SQL para diagnóstico
+        try:
+            logger.info("ProduccionDashboardView - filtros: start_date=%s end_date=%s cod_un=%s operacion=%s operador=%s acta=%s",
+                        start_date_str, end_date_str, cod_un, operacion, operador, acta)
+            logger.debug("SQL registros (paginated): %s", str(registros.query))
+            logger.debug("SQL registros_grafico: %s", str(registros_grafico_qs.query))
+        except Exception as e:
+            logger.exception("Error al obtener SQL del queryset: %s", e)
         registros_grafico = RegistroProduccionDiarioSerializer(registros_grafico_qs, many=True).data
         # =======================
         # 3. Calcular producción esperada acumulada
@@ -736,6 +1038,16 @@ class ProduccionDashboardView(APIView):
         if page is not None:
             serializer = RegistroProduccionSerializer(page, many=True)
             paginated_response = paginator.get_paginated_response(serializer.data)
+            # Log info sobre los datos paginados devueltos (cantidad y fechas ejemplo)
+            try:
+                results = serializer.data
+                count = paginated_response.data.get('count', None)
+                sample_ids = [r.get('id') for r in results[:5]]
+                sample_fechas = [r.get('fecha') for r in results[:5]]
+                logger.info("ProduccionDashboardView - paginated response count=%s sample_ids=%s sample_fechas=%s",
+                            count, sample_ids, sample_fechas)
+            except Exception:
+                logger.exception("Error al loggear la respuesta paginada")
             # añadir campos adicionales a la respuesta paginada
             extra = {
                 "produccion_esperada_acumulada": produccion_esperada_acumulada,
@@ -759,6 +1071,13 @@ class ProduccionDashboardView(APIView):
         # si no hay paginación (devuelve todo)
         serializer = RegistroProduccionSerializer(registros, many=True)
         results = serializer.data
+        try:
+            sample_ids_all = [r.get('id') for r in results[:5]]
+            sample_fechas_all = [r.get('fecha') for r in results[:5]]
+            logger.info("ProduccionDashboardView - full response results_len=%s sample_ids=%s sample_fechas=%s",
+                        len(results), sample_ids_all, sample_fechas_all)
+        except Exception:
+            logger.exception("Error al loggear la respuesta completa")
         return Response({
             "results": results,
             "registros_grafico": registros_grafico,
