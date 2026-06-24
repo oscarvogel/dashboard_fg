@@ -1,202 +1,359 @@
-# AGENTS.md instructions
+# AGENTS.md — Loop de trabajo para proyectos de Óscar
 
-<INSTRUCTIONS>
-<!-- CODEGRAPH_START -->
-## CodeGraph
+Este repositorio debe trabajarse con un loop operativo repetible, no con prompts aislados.
 
-This project has a CodeGraph MCP server (`codegraph_*` tools) configured. CodeGraph is a tree-sitter-parsed knowledge graph of every symbol, edge, and file. Reads are sub-millisecond and return structural information grep cannot.
+El objetivo es que cada tarea avance de forma ordenada:
 
-### When to prefer codegraph over native search
+**Issue → rama → implementación acotada → validaciones → PR draft → revisión → merge → cleanup → siguiente issue**
 
-Use codegraph for **structural** questions — what calls what, what would break, where is X defined, what is X's signature. Use native grep/read only for **literal text** queries (string contents, comments, log messages) or after you already have a specific file open.
+---
 
-| Question | Tool |
-|---|---|
-| "Where is X defined?" / "Find symbol named X" | `codegraph_search` |
-| "What calls function Y?" | `codegraph_callers` |
-| "What does Y call?" | `codegraph_callees` |
-| "What would break if I changed Z?" | `codegraph_impact` |
-| "Show me Y's signature / source / docstring" | `codegraph_node` |
-| "Give me focused context for a task/area" | `codegraph_context` |
-| "Survey an unfamiliar module/topic" | `codegraph_explore` |
-| "What files exist under path/" | `codegraph_files` |
-| "Is the index healthy?" | `codegraph_status` |
+## 1. Principios generales
 
-### Rules of thumb
-
-- **Trust codegraph results.** They come from a full AST parse. Do NOT re-verify them with grep — that's slower, less accurate, and wastes context.
-- **Don't grep first** when looking up a symbol by name. `codegraph_search` is faster and returns kind + location + signature in one call.
-- **Don't chain `codegraph_search` + `codegraph_node`** when you just want context — `codegraph_context` is one call.
-- `codegraph_explore` is the heavy hitter for unfamiliar areas — it returns full source from all relevant files in one call, but is token-heavy. If your harness supports parallel subagents (e.g., Claude Code's Task tool), spawn one for explore-class questions to keep main session context clean.
-- **Index lag**: the file watcher debounces ~500ms behind writes; don't re-query immediately after editing a file in the same turn.
-
-### If `.codegraph/` doesn't exist
-
-The MCP server returns "not initialized." Ask the user: *"I notice this project doesn't have CodeGraph initialized. Want me to run `codegraph init -i` to build the index?*"
-<!-- CODEGRAPH_END -->
-</INSTRUCTIONS>
-
-# LOOP FEMAG — Issue → PR → Validación → Merge
-
-## Principios generales
-
-* Trabajar siempre desde `main` actualizado.
-* Crear una rama por issue.
+* Trabajar siempre desde `main` o la rama base oficial actualizada.
+* Crear una rama por issue o tarea.
 * Mantener cambios chicos, revisables y testeables.
-* No mezclar issues.
+* No mezclar issues distintos en un mismo PR.
 * No implementar fuera de alcance.
-* No tocar no trackeados fuera de alcance:
-
-  * `.codegraph/`
-  * `.cursor/`
-  * `.github/`
-* Si el issue es de documentación, no modificar código funcional.
-* Si el issue es de modelo/servicio, no implementar UI.
-* Si el issue es de UI, reutilizar servicios existentes y no duplicar reglas de negocio.
-* Si el issue es de documento/impresión, no modificar flujo de carga salvo que sea estrictamente necesario.
+* No hacer refactors grandes si no fueron pedidos.
+* No modificar datos productivos reales.
+* No tocar archivos locales/no trackeados fuera de alcance.
+* Si hay dudas fuertes de alcance, frenar y reportar.
+* Si hay conflicto real, error de validación o bloqueo de merge, frenar y reportar.
 * Todo PR debe abrirse primero como draft.
-* No mergear si hay tests rotos, conflicto real o validación visual pendiente cuando aplique.
+* No mergear si las validaciones obligatorias no pasan.
 
-## Antes de empezar cada issue
+---
+
+## 2. Antes de empezar una tarea
 
 1. Verificar estado local:
-   `git status -sb`
 
-2. Confirmar rama actual:
-   `main`
+   ```bash
+   git status -sb
+   ```
 
-3. Actualizar main:
-   `git fetch --prune origin`
-   `git pull --ff-only origin main`
+2. Confirmar rama actual.
 
-4. Confirmar que `main` está alineado con `origin/main`.
+3. Actualizar rama base:
 
-5. Revisar el issue asignado y sus dependencias.
+   ```bash
+   git fetch --prune origin
+   git pull --ff-only origin main
+   ```
 
-6. Si depende de otro issue/PR no mergeado, frenar y reportar.
+4. Confirmar que la rama base está alineada con `origin/main`.
 
-7. Crear rama con formato:
-   `codex/issue-NN-descripcion-corta`
+5. Revisar el issue/tarea asignada.
 
-## Implementación
+6. Revisar dependencias:
 
-1. Revisar modelos, servicios, tests y documentación relacionada.
-2. Implementar sólo lo necesario para el issue.
-3. Agregar tests o actualizar los existentes.
-4. Mantener commits chicos.
-5. Evitar refactors grandes no pedidos.
-6. No cambiar UX aprobada salvo que el issue lo pida.
-7. No introducir datos productivos reales.
-8. No tocar archivos fuera de alcance.
+   * Si depende de otro PR no mergeado, no avanzar.
+   * Si depende de datos o decisiones faltantes, reportar.
+   * Si el bloqueo es real, no inventar solución.
 
-## Validaciones obligatorias
+7. Crear rama nueva con formato:
 
-Ejecutar siempre:
+   ```bash
+   codex/issue-NN-descripcion-corta
+   ```
 
-* `git diff --check`
-* `git diff --cached --check`
-* `py -3.12 -m pytest`
-* `py -3.12 -m compileall app`
-* `py -3.12 -m app.main --smoke`
+   O, si no hay issue:
 
-Si el issue toca UI, ejecutar además:
+   ```bash
+   codex/tarea-descripcion-corta
+   ```
 
-* `py -3.12 -m app.main --demo-ui`
+---
 
-Y validar con Computer Use:
+## 3. Tipos de tareas
 
-* abrir ventana `FEMAG Desktop`
-* navegar a la pantalla modificada
-* tomar screenshots reales
-* documentar evidencia
+### 3.1 Documentación
 
-## Evidencia visual para issues UI
+Si la tarea es documental:
 
-Si el issue modifica o agrega pantallas, crear carpeta:
+* No modificar código funcional.
+* No modificar UI.
+* No agregar dependencias.
+* Validar formato y consistencia.
+* Mantener el PR chico.
 
-`docs/screenshots/<nombre_issue>/`
+Validaciones mínimas:
 
-Agregar:
+```bash
+git diff --check
+```
 
-* PNGs reales tomados con Computer Use
-* `README.md` explicando capturas
-* reporte visual si corresponde:
-  `docs/<NOMBRE_ISSUE>_VISUAL_REVIEW.md`
+Si el repo tiene tests rápidos, ejecutarlos también.
 
-El reporte debe incluir:
+---
 
-* fecha
-* rama/commit validado
-* comandos ejecutados
-* resultado de tests
-* flujo probado
-* screenshots
-* hallazgos
-* veredicto:
+### 3.2 Modelo / datos / servicios
+
+Si la tarea toca modelos, servicios o reglas funcionales:
+
+* No implementar UI salvo que el issue lo pida.
+* No duplicar reglas en pantalla.
+* Agregar o actualizar tests.
+* Mantener reglas de negocio en servicios/modelos.
+* No mezclar impresión, reportes o integraciones futuras si no corresponde.
+
+Validaciones mínimas sugeridas para Python:
+
+```bash
+git diff --check
+git diff --cached --check
+python -m pytest
+python -m compileall app
+```
+
+Si el repo usa `py -3.12`, preferir:
+
+```bash
+py -3.12 -m pytest
+py -3.12 -m compileall app
+```
+
+---
+
+### 3.3 UI / UX
+
+Si la tarea agrega o modifica pantalla:
+
+* Reutilizar servicios existentes.
+* No duplicar reglas de negocio en UI.
+* Mantener estilo visual aprobado del proyecto.
+* Agregar tests de instanciación/navegación si existen.
+* Validar visualmente con Computer Use cuando sea posible.
+* Guardar screenshots reales.
+* No aprobar visualmente una pantalla sin evidencia.
+
+Validaciones mínimas:
+
+```bash
+git diff --check
+git diff --cached --check
+python -m pytest
+python -m compileall app
+```
+
+Si existe smoke:
+
+```bash
+python -m app.main --smoke
+```
+
+Si existe modo demo/UI:
+
+```bash
+python -m app.main --demo-ui
+```
+
+La evidencia visual debe guardarse en una carpeta tipo:
+
+```text
+docs/screenshots/<nombre_tarea>/
+```
+
+Agregar un `README.md` explicando las capturas.
+
+Si corresponde, agregar reporte:
+
+```text
+docs/<NOMBRE_TAREA>_VISUAL_REVIEW.md
+```
+
+El reporte visual debe incluir:
+
+* Fecha.
+* Rama/commit validado.
+* Comandos ejecutados.
+* Resultado de tests.
+* Flujo probado.
+* Screenshots.
+* Hallazgos.
+* Veredicto:
 
   * aprobado visualmente
   * aprobado con observaciones
   * no aprobado
 
-No aprobar visualmente una pantalla si:
+---
 
-* no se pudo abrir la app
-* Computer Use no pudo targetear la ventana
-* hay tracebacks visibles
-* hay errores técnicos para usuario final
-* no hay screenshots reales
+### 3.4 Impresión / documentos / reportes
 
-## PR
+Si la tarea genera documentos, PDFs, remitos, órdenes, reportes o impresiones:
 
-Abrir PR draft contra `main`.
+* No modificar UI salvo que sea necesario.
+* No modificar reglas de negocio no relacionadas.
+* Agregar tests de generación si el proyecto lo permite.
+* Validar formato de salida con evidencia.
+* Mantener plantillas separadas de lógica cuando sea posible.
 
-La descripción del PR debe incluir:
+---
 
-* Issue relacionado con `Closes #NN`
-* Objetivo
-* Cambios realizados
-* Archivos principales modificados
-* Tests agregados o actualizados
-* Validaciones ejecutadas
-* Evidencia visual si aplica
-* Fuera de alcance
-* Riesgos o pendientes
+### 3.5 Integraciones externas
 
-## Revisión final del PR
+Si la tarea toca APIs, correos, AFIP/ARCA, WhatsApp, n8n, servicios externos o bases externas:
+
+* No usar credenciales reales en código.
+* No commitear `.env`.
+* Documentar variables necesarias.
+* Agregar modo mock/stub si corresponde.
+* Separar integración real de tests unitarios.
+* No ejecutar acciones productivas sin instrucción explícita.
+
+---
+
+## 4. Implementación
+
+Durante la implementación:
+
+1. Revisar estructura del repo.
+2. Buscar patrones existentes antes de crear algo nuevo.
+3. Implementar lo mínimo necesario.
+4. Agregar tests.
+5. Ejecutar validaciones.
+6. Corregir errores reales.
+7. Mantener commits chicos y claros.
+
+Evitar:
+
+* Cambiar nombres públicos sin necesidad.
+* Reordenar archivos masivamente.
+* Mezclar formateos con lógica.
+* Meter mejoras “ya que estamos”.
+* Resolver issues futuros dentro del PR actual.
+
+---
+
+## 5. Validaciones obligatorias
+
+Antes de abrir o actualizar PR, ejecutar las validaciones definidas por el proyecto.
+
+Base sugerida:
+
+```bash
+git diff --check
+git diff --cached --check
+python -m pytest
+python -m compileall app
+```
+
+Para apps con smoke:
+
+```bash
+python -m app.main --smoke
+```
+
+Para apps con UI:
+
+```bash
+python -m app.main --demo-ui
+```
+
+Si algún comando no existe en el proyecto, documentar cuál fue omitido y por qué.
+
+---
+
+## 6. PR
+
+Todo PR debe abrirse primero como draft.
+
+La descripción debe incluir:
+
+* Issue relacionado con `Closes #NN` si aplica.
+* Objetivo.
+* Cambios realizados.
+* Archivos principales modificados.
+* Tests agregados o actualizados.
+* Validaciones ejecutadas.
+* Evidencia visual si aplica.
+* Fuera de alcance.
+* Riesgos o pendientes.
+
+Formato sugerido:
+
+```markdown
+## Objetivo
+
+Closes #NN
+
+## Cambios
+
+- ...
+
+## Tests / Validaciones
+
+- [x] git diff --check
+- [x] python -m pytest
+- [x] python -m compileall app
+- [x] smoke, si aplica
+- [x] Computer Use, si aplica
+
+## Evidencia visual
+
+- ...
+
+## Fuera de alcance
+
+- ...
+
+## Riesgos / pendientes
+
+- ...
+```
+
+---
+
+## 7. Revisión final del PR
 
 Antes de pasar a ready:
 
-1. Actualizar rama con `main` si hace falta.
-2. Revisar diff completo contra `main`.
+1. Actualizar rama con `main` si corresponde.
+2. Revisar diff completo contra la rama base.
 3. Confirmar que el alcance coincide con el issue.
 4. Repetir validaciones obligatorias.
 5. Si es UI, repetir validación visual con Computer Use.
 6. Corregir errores reales con commits chicos.
 7. Si todo está OK, pasar PR a ready.
 
-## Merge
+---
+
+## 8. Merge
 
 Sólo mergear si:
 
-* PR está limpio.
-* Checks pasan.
-* Validaciones locales pasan.
+* El PR está limpio.
+* Las validaciones pasan.
 * No hay conflictos.
 * El issue está correctamente referenciado.
+* No hay cambios fuera de alcance.
 * En UI, hay evidencia visual real.
 
 Después de mergear:
 
 1. Verificar que el issue se cerró automáticamente.
+
 2. Si no se cerró, cerrarlo manualmente indicando el PR.
+
 3. Actualizar `main` local.
-4. Borrar rama local y remota si corresponde.
-5. Ejecutar `git status -sb`.
+
+4. Borrar rama local/remota si corresponde.
+
+5. Ejecutar:
+
+   ```bash
+   git status -sb
+   ```
+
 6. Reportar estado final.
 
-## Reporte final esperado
+---
 
-Al terminar cada issue, reportar:
+## 9. Reporte final esperado
+
+Al terminar cada tarea, reportar:
 
 * Issue trabajado.
 * PR creado o mergeado.
@@ -208,3 +365,111 @@ Al terminar cada issue, reportar:
 * Evidencia visual si aplica.
 * Estado local final.
 * Siguiente issue recomendado.
+
+---
+
+## 10. Comando corto para ejecutar el loop
+
+Cuando el usuario diga:
+
+```text
+Ejecutá el loop para el issue #NN.
+```
+
+Se debe aplicar este flujo completo:
+
+1. Revisar issue.
+2. Validar dependencias.
+3. Crear rama.
+4. Implementar alcance acotado.
+5. Ejecutar validaciones.
+6. Abrir PR draft.
+7. Revisar.
+8. Si corresponde, pasar ready.
+9. Si corresponde, mergear.
+10. Limpiar ramas.
+11. Reportar resultado final.
+
+---
+
+## 11. Sección específica del proyecto
+
+Cada repositorio debe completar esta sección.
+
+### Nombre del proyecto
+
+`<completar>`
+
+### Stack
+
+`<completar>`
+
+Ejemplos:
+
+* Python / PyQt / MySQL / Peewee
+* Django / Vue / MySQL
+* FastAPI / Docker / n8n
+* VFP / Python bridge
+
+### Comandos reales del proyecto
+
+Tests:
+
+```bash
+<completar>
+```
+
+Compile/check:
+
+```bash
+<completar>
+```
+
+Smoke:
+
+```bash
+<completar>
+```
+
+UI/demo:
+
+```bash
+<completar>
+```
+
+Build/deploy, si aplica:
+
+```bash
+<completar>
+```
+
+### Reglas específicas del proyecto
+
+* `<completar>`
+* `<completar>`
+* `<completar>`
+
+### Archivos/carpetas fuera de alcance local
+
+* `<completar>`
+* `<completar>`
+
+### Flujo visual, si aplica
+
+* Comando para abrir UI:
+
+  ```bash
+  <completar>
+  ```
+
+* Carpeta de screenshots:
+
+  ```text
+  docs/screenshots/
+  ```
+
+### Orden actual de issues
+
+1. `<completar>`
+2. `<completar>`
+3. `<completar>`
