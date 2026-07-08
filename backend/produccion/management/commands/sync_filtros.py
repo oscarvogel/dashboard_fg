@@ -18,11 +18,13 @@ Uso:
   python manage.py sync_filtros
   python manage.py sync_filtros --dry-run
 
-Auth de la API FG:
-  Usa las mismas credenciales que fg_client.py
-  (~/.openclaw/service-env/equipos-api-rest.env).
+Auth de la API FG (orden de prioridad):
+  1. Env vars del sistema (FG_API_URL, FG_USER, FG_PASSWORD)
+  2. Archivo apuntado por env var FG_ENV_PATH (formato .env)
+  3. Fallback: ./backend/.env (cwd del proceso)
 """
 
+import os
 import re
 import sys
 from datetime import datetime, timedelta, date
@@ -83,16 +85,22 @@ def inferir_modelo_normalizado(detalle: str) -> str:
 # --------------------------------------------------------------------------
 # Cliente a la API REST de FG (sin dependencias, igual a fg_client.py)
 # --------------------------------------------------------------------------
-
-ENV_PATHS = [
-    Path('/Users/oscarvogel/.openclaw/service-env/equipos-api-rest.env'),
-    Path.home() / '.openclaw' / 'service-env' / 'equipos-api-rest.env',
-]
+#
+# Resolution de credenciales (en orden de prioridad):
+#   1. Variables del ambiente del sistema (os.environ)
+#   2. Archivo apuntado por env var FG_ENV_PATH (sobrescribe cualquier valor previo)
+#   3. .env en cwd del proceso (fallback razonable)
+#
+# Esto desacopla del filesystem de la Mac mini donde se desarrollo el feature.
+# En server prod: o se exportan las variables, o se apunta FG_ENV_PATH a un
+# archivo .env con FG_API_URL/FG_USER/FG_PASSWORD.
 
 
 def load_fg_env():
-    env = {}
-    for p in ENV_PATHS:
+    env = dict(os.environ)
+    fg_env_path = os.environ.get('FG_ENV_PATH')
+    if fg_env_path:
+        p = Path(fg_env_path)
         if p.exists():
             for line in p.read_text().splitlines():
                 line = line.strip()
@@ -100,7 +108,16 @@ def load_fg_env():
                     continue
                 k, _, v = line.partition('=')
                 env[k.strip()] = v.strip().strip('"').strip("'")
-            break
+    else:
+        # Fallback al .env del cwd (no al path hardcoded de Oscar/Mac-mini)
+        cwd_env = Path.cwd() / '.env'
+        if cwd_env.exists():
+            for line in cwd_env.read_text().splitlines():
+                line = line.strip()
+                if not line or line.startswith('#') or '=' not in line:
+                    continue
+                k, _, v = line.partition('=')
+                env[k.strip()] = v.strip().strip('"').strip("'")
     return env
 
 
