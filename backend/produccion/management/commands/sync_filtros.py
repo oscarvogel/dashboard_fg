@@ -46,15 +46,36 @@ from produccion.models import Equipo
 # --------------------------------------------------------------------------
 
 # Patrones para inferir modelo. Ajustables a medida que aparezcan equipos.
+# Importante: los tipos operativos ("Forwarder", "Feller", etc.) no son
+# parte del modelo_normalizado. Se usan para describir la funcion del equipo,
+# no la marca/modelo que necesita Nirmata.
 _RE_FABRICANTE_MODELO = re.compile(
     r'\b(JOHN DEERE|HYUNDAI|KOMATSU|PONSSE|PONSEE|CATERPILLAR|CAT|VOLVO|IVECO|'
     r'HITACHI|KOBELCO|NEW HOLLAND|HOLLAND|CAS|CHIPERA|BRUNO|PETERSON|SDLG|'
-    r'BUFFALO|FELLER|FORWARDER|HARVESTER|MOTONIVELADORA|MOTONIVE|SKIDDER|'
-    r'PROCESADOR|FELLER|FORWA|PROCE|CHIPE|MOTON|SKIDD|FELLE|GRUA)\b',
+    r'BUFFALO)\b',
     re.IGNORECASE,
 )
 
-_RE_NORM_PREFIX = re.compile(r'^(F|WA)\b', re.IGNORECASE)
+_RE_MODEL_TOKEN_WITH_DIGIT = re.compile(r'\b(?=[A-Za-z0-9]*\d)([A-Za-z0-9]+)\b')
+
+
+def _normalizar_capitalizacion_modelo(texto: str) -> str:
+    texto = re.sub(r'\s+', ' ', texto).strip()
+    if not texto:
+        return ''
+    texto = texto.title()
+    texto = _RE_MODEL_TOKEN_WITH_DIGIT.sub(lambda m: m.group(1).upper(), texto)
+    reemplazos = {
+        'Ponsee': 'Ponsse',
+        'Ponsse': 'Ponsse',
+        'John Deere': 'John Deere',
+        'Sdlg': 'SDLG',
+        'Cat': 'CAT',
+        'Iveco': 'IVECO',
+    }
+    for origen, destino in reemplazos.items():
+        texto = re.sub(rf'\b{re.escape(origen)}\b', destino, texto)
+    return texto
 
 
 def inferir_modelo_normalizado(detalle: str) -> str:
@@ -65,21 +86,17 @@ def inferir_modelo_normalizado(detalle: str) -> str:
     if not detalle:
         return ''
     s = detalle.strip()
-    # Quito prefijo "Camion", "Forwarder", "Feller", etc. hasta el primer modelo conocido.
     matches = _RE_FABRICANTE_MODELO.findall(s)
     if not matches:
         return ''
-    # Heuristica simple: tomar el primer fabricante + todo lo que sigue
-    # hasta "-" o fin.
+    # Heuristica simple: tomar la primera marca/modelo conocida + todo lo que
+    # sigue hasta "-" o fin. Los prefijos operativos anteriores quedan afuera.
     first = matches[0]
     idx = s.upper().find(first.upper())
     if idx < 0:
         return ''
     tail = s[idx:].split('-')[0].strip().rstrip('-').rstrip()
-    # Normalizar "PONSEE" -> "Ponsse" (typo comun en el sistema viejo).
-    tail = re.sub(r'\bPONSEE\b', 'Ponsse', tail)
-    tail = re.sub(r'\bJOHN DEERE\b', 'John Deere', tail, flags=re.IGNORECASE)
-    return tail
+    return _normalizar_capitalizacion_modelo(tail)
 
 
 # --------------------------------------------------------------------------
@@ -88,7 +105,7 @@ def inferir_modelo_normalizado(detalle: str) -> str:
 #
 # Resolution de credenciales (en orden de prioridad):
 #   1. Variables del ambiente del sistema (os.environ)
-#   2. Archivo apuntado por env var FG_ENV_PATH (sobrescribe cualquier valor previo)
+#   2. Archivo apuntado por env var FG_ENV_PATH
 #   3. .env en cwd del proceso (fallback razonable)
 #
 # Esto desacopla del filesystem de la Mac mini donde se desarrollo el feature.
@@ -96,28 +113,32 @@ def inferir_modelo_normalizado(detalle: str) -> str:
 # archivo .env con FG_API_URL/FG_USER/FG_PASSWORD.
 
 
+def _read_env_file(path: Path) -> dict:
+    env = {}
+    if not path.exists():
+        return env
+    for line in path.read_text().splitlines():
+        line = line.strip()
+        if not line or line.startswith('#') or '=' not in line:
+            continue
+        k, _, v = line.partition('=')
+        env[k.strip()] = v.strip().strip('"').strip("'")
+    return env
+
+
 def load_fg_env():
-    env = dict(os.environ)
+    env = {}
+
+    # Menor prioridad: .env del cwd (no el path hardcoded de Oscar/Mac-mini).
+    env.update(_read_env_file(Path.cwd() / '.env'))
+
+    # Prioridad media: archivo explicitamente apuntado.
     fg_env_path = os.environ.get('FG_ENV_PATH')
     if fg_env_path:
-        p = Path(fg_env_path)
-        if p.exists():
-            for line in p.read_text().splitlines():
-                line = line.strip()
-                if not line or line.startswith('#') or '=' not in line:
-                    continue
-                k, _, v = line.partition('=')
-                env[k.strip()] = v.strip().strip('"').strip("'")
-    else:
-        # Fallback al .env del cwd (no al path hardcoded de Oscar/Mac-mini)
-        cwd_env = Path.cwd() / '.env'
-        if cwd_env.exists():
-            for line in cwd_env.read_text().splitlines():
-                line = line.strip()
-                if not line or line.startswith('#') or '=' not in line:
-                    continue
-                k, _, v = line.partition('=')
-                env[k.strip()] = v.strip().strip('"').strip("'")
+        env.update(_read_env_file(Path(fg_env_path)))
+
+    # Mayor prioridad: variables exportadas por el caller.
+    env.update(os.environ)
     return env
 
 
