@@ -104,7 +104,7 @@ class Equipo(models.Model):
     ult_hr_km = models.DecimalField(max_digits=12, decimal_places=2, default=0.00)
     tipo_movil = models.ForeignKey(TipoMovil, on_delete=models.CASCADE, db_column='tipo_movil', null=True, blank=True)
     baja = models.BooleanField(default=False)
-    unidad_negocio = models.ForeignKey(UnidadNegocio, on_delete=models.CASCADE, db_column='idUnidadNegocio', null=True, blank=True)
+    unidad_negocio = models.ForeignKey(UnidadNegocio, on_delete=models.CASCADE, db_column='idUnidadNegocio', null=True, blank=True, db_constraint=False)
 
     # === feature/equipo-aliases (2026-07-08) ===
     # Codigo interno que devuelve la API REST de FG (ej: "FORWA-Nº5").
