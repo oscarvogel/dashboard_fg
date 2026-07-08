@@ -47,6 +47,7 @@ class SyncFiltrosHelpersTests(SimpleTestCase):
                 with patch.dict(os.environ, {
                     'FG_ENV_PATH': str(pointed_env),
                     'FG_API_URL': 'http://env.example',
+                    'FG_ACCESS_TOKEN': 'env-token',
                     'FG_USER': 'env-user',
                     'FG_PASSWORD': 'env-pass',
                 }, clear=True):
@@ -55,6 +56,7 @@ class SyncFiltrosHelpersTests(SimpleTestCase):
                 os.chdir(old_cwd)
 
         self.assertEqual(env['FG_API_URL'], 'http://env.example')
+        self.assertEqual(env['FG_ACCESS_TOKEN'], 'env-token')
         self.assertEqual(env['FG_USER'], 'env-user')
         self.assertEqual(env['FG_PASSWORD'], 'env-pass')
 

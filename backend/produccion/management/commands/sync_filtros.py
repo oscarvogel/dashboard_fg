@@ -22,6 +22,7 @@ Auth de la API FG (orden de prioridad):
   1. Env vars del sistema (FG_API_URL, FG_USER, FG_PASSWORD)
   2. Archivo apuntado por env var FG_ENV_PATH (formato .env)
   3. Fallback: ./backend/.env (cwd del proceso)
+  4. Si FG_ACCESS_TOKEN esta definido, se usa directo y no hace login.
 """
 
 import os
@@ -111,6 +112,8 @@ def inferir_modelo_normalizado(detalle: str) -> str:
 # Esto desacopla del filesystem de la Mac mini donde se desarrollo el feature.
 # En server prod: o se exportan las variables, o se apunta FG_ENV_PATH a un
 # archivo .env con FG_API_URL/FG_USER/FG_PASSWORD.
+# Tambien se puede exportar FG_ACCESS_TOKEN si el caller ya genero un JWT
+# valido (por ejemplo desde Django en el mismo server).
 
 
 def _read_env_file(path: Path) -> dict:
@@ -184,19 +187,24 @@ class Command(BaseCommand):
 
         env = load_fg_env()
         api_url = env.get('FG_API_URL')
+        access_token = env.get('FG_ACCESS_TOKEN')
         user = env.get('FG_USER')
         password = env.get('FG_PASSWORD')
-        if not (api_url and user and password):
+        if not api_url or not (access_token or (user and password)):
             self.stderr.write(self.style.ERROR(
-                'Faltan FG_API_URL/FG_USER/FG_PASSWORD en ~/.openclaw/service-env/equipos-api-rest.env'
+                'Faltan FG_API_URL y FG_ACCESS_TOKEN o FG_USER/FG_PASSWORD'
             ))
             sys.exit(1)
 
         end = date.today()
         start = end - timedelta(days=days)
-        self.stdout.write(f"[sync_filtros] Login en {api_url}...")
-        jwt = fg_login(api_url, user, password)
-        self.stdout.write(self.style.SUCCESS("[sync_filtros] Login OK"))
+        if access_token:
+            jwt = access_token
+            self.stdout.write(f"[sync_filtros] Usando FG_ACCESS_TOKEN para {api_url}")
+        else:
+            self.stdout.write(f"[sync_filtros] Login en {api_url}...")
+            jwt = fg_login(api_url, user, password)
+            self.stdout.write(self.style.SUCCESS("[sync_filtros] Login OK"))
         self.stdout.write(f"[sync_filtros] /api/filtros?start_date={start}&end_date={end}")
         filtros = fetch_filtros(api_url, jwt, start.isoformat(), end.isoformat())
         equipos_api = [e for e in (filtros.get('equipos') or []) if e]
