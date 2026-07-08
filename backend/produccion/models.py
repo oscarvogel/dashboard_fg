@@ -97,7 +97,7 @@ class RegistroProduccion(models.Model):
         db_table = 'tablero_produccion'
 
 class Equipo(models.Model):
-    
+
     id = models.AutoField(primary_key=True, db_column="idmovil")
     patente = models.CharField(max_length=30)
     detalle = models.CharField(max_length=255, null=True, blank=True)
@@ -105,10 +105,23 @@ class Equipo(models.Model):
     tipo_movil = models.ForeignKey(TipoMovil, on_delete=models.CASCADE, db_column='tipo_movil', null=True, blank=True)
     baja = models.BooleanField(default=False)
     unidad_negocio = models.ForeignKey(UnidadNegocio, on_delete=models.CASCADE, db_column='idUnidadNegocio', null=True, blank=True)
-    
+
+    # === feature/equipo-aliases (2026-07-08) ===
+    # Codigo interno que devuelve la API REST de FG (ej: "FORWA-Nº5").
+    # No es FK — es un sistema con codigos distintos al de Django.
+    codigo_fg = models.CharField(max_length=30, blank=True, default='', db_index=True)
+    # Modelo normalizado, inferido por regex desde `detalle`
+    # (ej: "Ponsse Buffalo King" extraido de "Forwarder PONSSE BUFFALO KING - Nº 1").
+    modelo_normalizado = models.CharField(max_length=80, blank=True, default='')
+    # Aliases manuales que Nirmata va aprendiendo (ej: ["PONSSE BUFALO", "BUFFALO"]).
+    # El sync_filtros NO los sobreescribe — solo los crea si estan vacios.
+    aliases = models.JSONField(default=list, blank=True)
+    # Marca del ultimo pull desde la API FG /api/filtros.
+    ultima_sync_filtros = models.DateTimeField(null=True, blank=True)
+
     class Meta:
-        db_table = 'moviles'     
-    
+        db_table = 'moviles'
+
     def __str__(self):
         return f'{self.patente} - {self.detalle}'
     

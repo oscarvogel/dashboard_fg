@@ -1,5 +1,10 @@
 from django.urls import path, include
-from .views import CargasCombustibleView, EmpleadoViewSet, EquiposPorUNView, FiltrosCombustibleView, FiltrosDinamicosView, HorasNoOperativasDashboardView, LoginEmpleadoView, ProduccionDashboardView, ProduccionEjecutivaView, ProduccionOperadorView, RegistrosEmpleadoViewSet, ResumenOperacionalView, UnidadesNegocioActivasView, maquinas_por_frente_operador, resumen_maquinas_componentes
+from .views import (
+    CargasCombustibleView, EmpleadoViewSet, EquipoAliasesPatchView, EquiposListSearchView, EquiposPorUNView,
+    FiltrosCombustibleView, FiltrosDinamicosView, HorasNoOperativasDashboardView, LoginEmpleadoView,
+    ProduccionDashboardView, ProduccionEjecutivaView, ProduccionOperadorView, RegistrosEmpleadoViewSet,
+    ResumenOperacionalView, UnidadesNegocioActivasView, maquinas_por_frente_operador, resumen_maquinas_componentes,
+)
 from rest_framework.routers import DefaultRouter
 
 router = DefaultRouter()
@@ -18,8 +23,11 @@ urlpatterns = [
     path('resumen-operacional/', ResumenOperacionalView.as_view(), name='resumen-operacional'),
     path('filtros-combustible/', FiltrosCombustibleView.as_view(), name='filtros-combustible'),
     path('equipos-por-un/', EquiposPorUNView.as_view(), name='equipos-por-un'),
-    path('cargas-combustible/', CargasCombustibleView.as_view(), name='cargas-combustible'),   
-    path('horas-no-operativas/', HorasNoOperativasDashboardView.as_view(), name='horas-no-operativas'),    
+    path('cargas-combustible/', CargasCombustibleView.as_view(), name='cargas-combustible'),
+    path('horas-no-operativas/', HorasNoOperativasDashboardView.as_view(), name='horas-no-operativas'),
     path('maquinas-frente-operador/', maquinas_por_frente_operador, name='maquinas_frente_operador'),
     path('resumen-maquinas-componentes/', resumen_maquinas_componentes, name='resumen_maquinas_componentes'),
-]
+    # === feature/equipo-aliases (2026-07-08) ===================================
+    path('equipos/', EquiposListSearchView.as_view(), name='equipos-search'),
+    path('equipos/<str:patente>/aliases/', EquipoAliasesPatchView.as_view(), name='equipos-aliases-patch'),
+]  
