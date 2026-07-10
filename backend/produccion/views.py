@@ -27,7 +27,7 @@ from rest_framework import filters
 from rest_framework.permissions import AllowAny  # 👈 Recomendado
 
 from .models import CargaCombustible, Empleado, Equipo, ProduccionMensual, RegistroProduccion, UnidadNegocio
-from .serializers import CargaCombustibleSerializer, EmpleadoSerializer, LoginSerializer, RegistroProduccionDiarioSerializer, RegistroProduccionSerializer
+from .serializers import CargaCombustibleSerializer, EmpleadoSerializer, EquipoSerializer, LoginSerializer, RegistroProduccionDiarioSerializer, RegistroProduccionSerializer
 from django.db.models import Sum, F
 from datetime import datetime
 from datetime import timedelta, date
@@ -1440,3 +1440,93 @@ def resumen_maquinas_componentes(request):
             'fecha_fin': fecha_fin_str
         }
     }, safe=False)
+
+# === feature/equipo-aliases (2026-07-08) =====================================
+class EquiposListSearchView(APIView):
+    """`GET /api/equipos/?q=bufalo` — busqueda multi-campo.
+
+    Implementado como APIView (no ModelViewSet) para:
+      - Saltarse el bug pre-existente `idUnidadNegocio` (db_column inconsistente
+        en SQLite dev) usando `.values()` en vez de cargar instancias.
+      - Permitir que el caller filtre `?q=` contra detalle/codigo_fg/patente/
+        modelo_normalizado/aliases.
+      - Permitir `?limit=N` y `?offset=N` (no usa paginator de DRF).
+
+    Reglas (Oscar 2026-07-08):
+      - Regla #1: NO se auto-crean Equipos. Solo se devuelven existentes.
+      - Regla #4: si hay N>1 matches, el caller resuelve con su usuario final.
+    """
+    permission_classes = [AllowAny]   # ajustar con auth JWT en el deploy
+
+    def get(self, request):
+        try:
+            limit = max(1, min(int(request.query_params.get('limit', 50)), 200))
+            offset = max(0, int(request.query_params.get('offset', 0)))
+        except (TypeError, ValueError):
+            return Response({'error': 'limit/offset invalid'}, status=400)
+
+        # Cargar todos los equipos con campos selectivos. Catalogo chico
+        # (decenas a cientos), por lo que el filtro se hace 100% Python.
+        rows = list(Equipo.objects.values(
+            'id', 'patente', 'detalle', 'codigo_fg', 'modelo_normalizado',
+            'aliases', 'ultima_sync_filtros', 'baja',
+        ).order_by('detalle'))
+
+        q = request.query_params.get('q', '').strip()
+        if q:
+            ql = q.lower()
+            def match(row):
+                if ql in (row.get('detalle') or '').lower(): return True
+                if ql in (row.get('codigo_fg') or '').lower(): return True
+                if ql in (row.get('patente') or '').lower(): return True
+                if ql in (row.get('modelo_normalizado') or '').lower(): return True
+                for alias in (row.get('aliases') or []):
+                    if isinstance(alias, str) and ql in alias.lower(): return True
+                return False
+            filtered = [r for r in rows if match(r)]
+        else:
+            filtered = rows
+
+        total = len(filtered)
+        window = filtered[offset:offset + limit]
+        return Response({
+            'total': total,
+            'limit': limit,
+            'offset': offset,
+            'count': len(window),
+            'results': window,
+        })
+
+
+class EquipoAliasesPatchView(APIView):
+    """`PATCH /api/equipos/<patente>/aliases` — suma aliases a un Equipo.
+
+    Body: {"add": ["bufalo", "PONSSE"]} o {"replace": ["PONSSE BUFALO"]}.
+    Devuelve el Equipo actualizado.
+    """
+    permission_classes = [AllowAny]   # ajustar con auth JWT en deploy
+
+    def patch(self, request, patente):
+        try:
+            row = Equipo.objects.values('id', 'aliases').get(patente=patente)
+        except Equipo.DoesNotExist:
+            return Response({'error': f'Equipo con patente {patente!r} no existe'}, status=404)
+
+        aliases_actual = list(row.get('aliases') or [])
+        add = request.data.get('add', []) if hasattr(request, 'data') else []
+        replace = request.data.get('replace')
+
+        if replace is not None:
+            nuevos = list(replace) if isinstance(replace, list) else []
+        else:
+            nuevos = list(aliases_actual)
+            for a in (add if isinstance(add, list) else []):
+                if isinstance(a, str) and a.strip() and a not in nuevos:
+                    nuevos.append(a)
+
+        Equipo.objects.filter(pk=row['id']).update(aliases=nuevos)
+        return Response({
+            'patente': patente,
+            'aliases': nuevos,
+            'added': [a for a in nuevos if a not in aliases_actual],
+        })
