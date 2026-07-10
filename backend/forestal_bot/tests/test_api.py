@@ -58,6 +58,25 @@ class WhatsAppMessageCreateAPITests(APITestCase):
         message = WhatsAppMessage.objects.get()
         self.assertEqual(message.raw_json, self.payload)
 
+    def test_post_media_without_body_persists_empty_body(self):
+        payload = {
+            **self.payload,
+            "message_type": "image",
+            "media_type": "image/jpeg",
+            "media_path": "spool/image.jpg",
+        }
+        payload.pop("body")
+
+        response = self.client.post(
+            self.url,
+            payload,
+            format="json",
+            HTTP_AUTHORIZATION="Bearer test-openclaw-token",
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
+        self.assertEqual(WhatsAppMessage.objects.get().body, "")
+
     def test_duplicate_post_returns_existing_message_without_overwriting_it(self):
         headers = {"HTTP_AUTHORIZATION": "Bearer test-openclaw-token"}
         first_response = self.client.post(
