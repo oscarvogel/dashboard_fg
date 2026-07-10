@@ -175,7 +175,7 @@
         </button>
 
       <!-- KPIs -->
-      <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-6 mb-6">
+      <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-5 gap-6 mb-6">
 
         <!-- 🟩 Producción Total (importante) -->
         <div class="bg-white p-6 rounded-xl shadow-sm hover:shadow-md transition-all duration-300 text-center transform hover:-translate-y-1 animate-fade-in-up">
@@ -274,6 +274,17 @@
           </div>
           <h3 class="text-sm font-medium text-gray-500 mb-1">Hrs. a Disposición</h3>
           <p class="text-xl font-bold text-primary-700">{{ formatNumber(totalHrsDisposicion) }} Hrs</p>
+        </div>
+
+        <!-- 🏭 Horas de remolque -->
+        <div class="bg-white p-6 rounded-xl shadow-sm hover:shadow-md transition-all duration-300 text-center transform hover:-translate-y-1 animate-fade-in-up" style="animation-delay: 700ms">
+          <div class="inline-flex p-2 bg-primary-100 rounded-lg mb-2">
+            <svg xmlns="http://www.w3.org/2000/svg" class="h-6 w-6 text-primary-600" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+              <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 16V6a1 1 0 00-1-1H4a1 1 0 00-1 1v10m10 0h2m-2 0a2 2 0 11-4 0m4 0a2 2 0 10-4 0m6 0a2 2 0 104 0m-4 0a2 2 0 114 0m0 0h1a1 1 0 001-1v-3.586a1 1 0 00-.293-.707l-2.414-2.414A1 1 0 0017.586 8H15" />
+            </svg>
+          </div>
+          <h3 class="text-sm font-medium text-gray-500 mb-1">Hrs. Remolque</h3>
+          <p class="text-xl font-bold text-primary-700">{{ formatNumber(totalHrsRemolque) }} Hrs</p>
         </div>
 
       </div>
@@ -435,6 +446,8 @@
                   </th>
                   <th class="border border-gray-300 px-3 py-2 text-xs sm:text-sm font-semibold cursor-pointer hover:bg-gray-200">Hr Inicio</th>
                   <th class="border border-gray-300 px-3 py-2 text-xs sm:text-sm font-semibold cursor-pointer hover:bg-gray-200">Hr Fin</th>
+                  <th class="border border-gray-300 px-3 py-2 text-xs sm:text-sm font-semibold cursor-pointer hover:bg-gray-200">Hrs Remolque</th>
+                  <th class="border border-gray-300 px-3 py-2 text-xs sm:text-sm font-semibold cursor-pointer hover:bg-gray-200">Hrs Disposición</th>
 
                   <!-- Operación -->
                   <th 
@@ -485,6 +498,8 @@
                   <td class="px-6 py-4 text-sm text-gray-800">{{ r.fecha }}</td>
                   <td class="px-6 py-4 text-sm text-gray-800">{{ r.hr_inicio }}</td>
                   <td class="px-6 py-4 text-sm text-gray-800">{{ r.hr_fin }}</td>
+                  <td class="px-6 py-4 text-sm text-gray-800">{{ r.hr_remolque }}</td>
+                  <td class="px-6 py-4 text-sm text-gray-800">{{ r.hr_disposicion }}</td>
                   <td class="px-6 py-4 text-sm text-gray-800">{{ r.operacion }}</td>
                   <td class="px-6 py-4 text-sm text-gray-800">{{ r.unidad_produccion }}</td>
                   <td class="px-6 py-4 text-sm text-gray-800">{{ r.unidad_negocio_detalle }}</td>
@@ -641,6 +656,10 @@ const totalProduccion = computed(() => {
 
 const totalHrsDisposicion = computed(() => {
   return registrosResumen.value.reduce((sum, r) => sum + parseFloat(r.hr_disposicion || 0), 0)
+})
+
+const totalHrsRemolque = computed(() => {
+  return registrosResumen.value.reduce((sum, r) => sum + parseFloat(r.hr_remolque || 0), 0)
 })
 
 const desvioAbsoluto = computed(() => {
@@ -1068,6 +1087,8 @@ const exportarRegistrosAExcel = () => {
         'Fecha': r.fecha,
         'Hora Inicio': r.hr_inicio,
         'Hora Fin': r.hr_fin,
+        'Horas Remolque': r.hr_remolque,
+        'Horas a Disposición': r.hr_disposicion,
         'Operación': r.operacion,
         'Unidad de Producción': r.unidad_produccion,
         'Unidad de Negocio': r.unidad_negocio_detalle,
@@ -1080,6 +1101,8 @@ const exportarRegistrosAExcel = () => {
         { wch: 12 },
         { wch: 15 },
         { wch: 15 },
+        { wch: 18 },
+        { wch: 20 },
         { wch: 15 },
         { wch: 15 },
         { wch: 20 },
