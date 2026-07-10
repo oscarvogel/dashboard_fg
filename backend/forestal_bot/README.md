@@ -25,7 +25,7 @@ Los campos obligatorios son:
 - `account_id`: identificador de la cuenta de WhatsApp.
 - `group_jid`: JID del grupo.
 - `message_id`: identificador del mensaje en el proveedor.
-- `timestamp`: fecha y hora ISO 8601 del mensaje.
+- `timestamp`: fecha y hora ISO 8601 del mensaje; debe incluir `Z` o un offset UTC explicito, por ejemplo `-03:00`. Un timestamp naive, sin zona ni offset, responde `400 Bad Request`.
 
 La identidad idempotente del mensaje es la combinacion de `account_id`, `group_jid` y `message_id`. Un reenvio de esa misma identidad devuelve el registro existente y no sobrescribe su contenido.
 
