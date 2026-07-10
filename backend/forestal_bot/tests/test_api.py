@@ -135,3 +135,142 @@ class WhatsAppMessageCreateAPITests(APITestCase):
             set(response.data),
             {"account_id", "group_jid", "message_id", "timestamp"},
         )
+
+
+@override_settings(OPENCLAW_INGEST_TOKEN="test-openclaw-token")
+class WhatsAppMessageRecentAPITests(APITestCase):
+    def setUp(self):
+        self.url = reverse("forestal_bot:whatsapp-message-recent")
+        self.headers = {
+            "HTTP_AUTHORIZATION": "Bearer test-openclaw-token",
+        }
+
+    def create_message(self, message_id, timestamp, group_jid="group-a@g.us"):
+        return WhatsAppMessage.objects.create(
+            account_id="account-1",
+            group_jid=group_jid,
+            message_id=message_id,
+            timestamp=timestamp,
+        )
+
+    def create_messages(self, count):
+        WhatsAppMessage.objects.bulk_create(
+            [
+                WhatsAppMessage(
+                    account_id="account-1",
+                    group_jid="group-a@g.us",
+                    message_id=f"message-{index}",
+                    timestamp="2026-07-10T10:00:00-03:00",
+                )
+                for index in range(count)
+            ]
+        )
+
+    def test_get_recent_without_token_is_forbidden(self):
+        response = self.client.get(self.url)
+
+        self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
+
+    def test_get_recent_returns_newest_message_first(self):
+        self.create_message("oldest", "2026-07-10T10:00:00-03:00")
+        self.create_message("newest", "2026-07-10T11:00:00-03:00")
+
+        response = self.client.get(self.url, **self.headers)
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(
+            [row["message_id"] for row in response.data],
+            ["newest", "oldest"],
+        )
+
+    def test_get_recent_filters_by_exact_group_jid(self):
+        self.create_message("selected", "2026-07-10T11:00:00-03:00")
+        self.create_message(
+            "other",
+            "2026-07-10T12:00:00-03:00",
+            group_jid="group-a@g.us.extra",
+        )
+
+        response = self.client.get(
+            self.url,
+            {"group_jid": "group-a@g.us"},
+            **self.headers,
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(
+            [row["message_id"] for row in response.data],
+            ["selected"],
+        )
+
+    def test_get_recent_filters_since_iso_8601_timestamp(self):
+        self.create_message("before", "2026-07-10T09:59:59-03:00")
+        self.create_message("at-cutoff", "2026-07-10T10:00:00-03:00")
+
+        response = self.client.get(
+            self.url,
+            {"since": "2026-07-10T10:00:00-03:00"},
+            **self.headers,
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(
+            [row["message_id"] for row in response.data],
+            ["at-cutoff"],
+        )
+
+    def test_get_recent_applies_limit(self):
+        self.create_message("oldest", "2026-07-10T10:00:00-03:00")
+        self.create_message("newest", "2026-07-10T11:00:00-03:00")
+
+        response = self.client.get(self.url, {"limit": "1"}, **self.headers)
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(
+            [row["message_id"] for row in response.data],
+            ["newest"],
+        )
+
+    def test_get_recent_defaults_to_100_messages(self):
+        self.create_messages(101)
+
+        response = self.client.get(self.url, **self.headers)
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(len(response.data), 100)
+
+    def test_get_recent_caps_limit_at_500_messages(self):
+        self.create_messages(501)
+
+        response = self.client.get(self.url, {"limit": "501"}, **self.headers)
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(len(response.data), 500)
+
+    def test_get_recent_rejects_invalid_since(self):
+        response = self.client.get(
+            self.url,
+            {"since": "not-a-date"},
+            **self.headers,
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertEqual(set(response.data), {"since"})
+
+    def test_get_recent_rejects_noninteger_limit(self):
+        response = self.client.get(self.url, {"limit": "many"}, **self.headers)
+
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertEqual(response.data, {"limit": ["A positive integer is required."]})
+
+    def test_get_recent_rejects_zero_limit(self):
+        response = self.client.get(self.url, {"limit": "0"}, **self.headers)
+
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertEqual(response.data, {"limit": ["A positive integer is required."]})
+
+    def test_get_recent_rejects_negative_limit(self):
+        response = self.client.get(self.url, {"limit": "-1"}, **self.headers)
+
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertEqual(response.data, {"limit": ["A positive integer is required."]})

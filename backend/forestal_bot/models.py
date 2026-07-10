@@ -25,6 +25,16 @@ class WhatsAppMessage(models.Model):
 
     class Meta:
         ordering = ["-timestamp", "-created_at"]
+        indexes = [
+            models.Index(
+                fields=["timestamp", "created_at"],
+                name="forestal_wa_ts_created_idx",
+            ),
+            models.Index(
+                fields=["group_jid", "timestamp", "created_at"],
+                name="forestal_wa_group_ts_cr_idx",
+            ),
+        ]
         constraints = [
             models.UniqueConstraint(
                 fields=["account_id", "group_jid", "message_id"],

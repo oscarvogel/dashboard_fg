@@ -34,3 +34,18 @@ class WhatsAppMessageTests(TestCase):
         with self.assertRaises(IntegrityError):
             with transaction.atomic():
                 WhatsAppMessage.objects.create(**self.message_data())
+
+    def test_recent_message_queries_have_global_and_group_indexes(self):
+        indexes = {
+            index.name: list(index.fields)
+            for index in WhatsAppMessage._meta.indexes
+        }
+
+        self.assertEqual(
+            indexes["forestal_wa_ts_created_idx"],
+            ["timestamp", "created_at"],
+        )
+        self.assertEqual(
+            indexes["forestal_wa_group_ts_cr_idx"],
+            ["group_jid", "timestamp", "created_at"],
+        )
