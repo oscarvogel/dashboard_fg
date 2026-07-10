@@ -259,6 +259,49 @@ Una transcripcion completada y no vacia nunca se sobrescribe mediante ingesta. U
 
 La pantalla JWT del dueno consume `GET /api/forestal-bot/whatsapp/owner/messages/`. Esta ruta no devuelve `media_path` ni `group_jid`; el token de OpenClaw no se expone al navegador.
 
+## Análisis de imágenes realizado por OpenClaw
+
+OpenClaw puede enviar primero metadata de una imagen con `image_analysis_status: "pending"` y repetir el mismo POST cuando finaliza su análisis. `dashboard_fg` sólo persiste el resultado: no descarga, abre ni analiza `media_path` y no registra contenido binario.
+
+Primer POST:
+
+```json
+{
+  "account_id": "default",
+  "group_jid": "120363426378425507@g.us",
+  "message_id": "ID-REAL",
+  "timestamp": "2026-07-10T18:00:00-03:00",
+  "body": "",
+  "message_type": "image/jpeg",
+  "media_type": "image/jpeg",
+  "media_path": "/ruta/local/no-publica/imagen.jpg",
+  "image_analysis_status": "pending"
+}
+```
+
+Actualización con la misma identidad:
+
+```json
+{
+  "account_id": "default",
+  "group_jid": "120363426378425507@g.us",
+  "message_id": "ID-REAL",
+  "timestamp": "2026-07-10T18:00:00-03:00",
+  "body": "",
+  "message_type": "image/jpeg",
+  "media_type": "image/jpeg",
+  "media_path": "/ruta/local/no-publica/imagen.jpg",
+  "image_description": "Se observa una manguera hidraulica con una fisura longitudinal.",
+  "image_analysis_status": "completed"
+}
+```
+
+El primer POST responde 201 y el segundo 200 con `created: false`. Sólo se actualizan los cuatro campos de análisis; `raw_json`, cuerpo, remitente, grupo, timestamp y metadata originales permanecen intactos. `completed` establece `image_analyzed_at`, limpia el error y no puede sobrescribirse posteriormente por ingesta.
+
+Los estados admitidos son vacío, `pending`, `processing`, `completed` y `failed`. `image_description` se limita a 10.000 caracteres e `image_analysis_error` a 500; no se aceptan trazas ni marcadores de secretos.
+
+La descripción automática es orientativa y no reemplaza una inspección técnica profesional.
+
 ## Administrar grupos
 
 Todos los endpoints usan el mismo encabezado Bearer:
