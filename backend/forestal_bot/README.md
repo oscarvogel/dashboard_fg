@@ -1,6 +1,6 @@
 # API de ingesta de WhatsApp para OpenClaw
 
-Esta API recibe mensajes de WhatsApp ya capturados por OpenClaw y permite consultar los mensajes sincronizados recientemente.
+Esta API recibe mensajes de WhatsApp ya capturados por OpenClaw, mantiene un catalogo administrable de grupos y permite consultar los mensajes sincronizados recientemente.
 
 ## Autenticacion
 
@@ -28,6 +28,8 @@ Los campos obligatorios son:
 - `timestamp`: fecha y hora ISO 8601 del mensaje; debe incluir `Z` o un offset UTC explicito, por ejemplo `-03:00`. Un timestamp naive, sin zona ni offset, responde `400 Bad Request`.
 
 La identidad idempotente del mensaje es la combinacion de `account_id`, `group_jid` y `message_id`. Un reenvio de esa misma identidad devuelve el registro existente y no sobrescribe su contenido.
+
+Cada mensaje se vincula al catalogo por `account_id + group_jid`. Si el payload trae un `group_name` no vacio, se usa para crear el grupo o reemplazar solamente el marcador `Grupo sin identificar`; un nombre administrado nunca se sobrescribe automaticamente. Si `group_name` se omite, el payload sigue siendo compatible y se crea el grupo con ese marcador neutral.
 
 ### Payload completo para un mensaje de texto
 
@@ -196,6 +198,34 @@ Los filtros son opcionales:
 - `limit`: entero positivo; el valor predeterminado es `100` y el maximo efectivo es `500`.
 
 La respuesta `200 OK` es un arreglo JSON de mensajes, ordenado desde el `timestamp` mas reciente. Un `since` invalido o un `limit` no entero, cero o negativo responde `400 Bad Request`. La falta de un token valido responde `403 Forbidden`.
+
+Cada mensaje conserva `group_jid` y `group_name` y agrega:
+
+```json
+{
+  "group": {
+    "id": 1,
+    "jid": "120363426378425507@g.us",
+    "name": "Grupo de prueba"
+  },
+  "group_display_name": "Grupo de prueba"
+}
+```
+
+`group_display_name` prioriza el nombre del catalogo, luego el `group_name` historico y finalmente `group_jid`. Las pantallas del dueno deben usar `group_display_name`; el JID queda para administracion o diagnostico tecnico.
+
+## Administrar grupos
+
+Todos los endpoints usan el mismo encabezado Bearer:
+
+```http
+GET /api/forestal-bot/whatsapp/groups/?account_id=account-1&active=true
+POST /api/forestal-bot/whatsapp/groups/
+PATCH /api/forestal-bot/whatsapp/groups/1/
+Authorization: Bearer <token>
+```
+
+El POST requiere `account_id`, `jid` y `name`; acepta `description` y `active`. No se permite repetir un `jid` dentro de la misma cuenta. GET permite filtrar exactamente por `account_id` y `active`. PATCH permite modificar parcialmente un grupo existente.
 
 ## Responsabilidades del flujo
 
