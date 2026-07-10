@@ -214,6 +214,51 @@ Cada mensaje conserva `group_jid` y `group_name` y agrega:
 
 `group_display_name` prioriza el nombre del catalogo, luego el `group_name` historico y finalmente `group_jid`. Las pantallas del dueno deben usar `group_display_name`; el JID queda para administracion o diagnostico tecnico.
 
+## Transcripciones locales de audio
+
+OpenClaw puede enviar primero el audio como pendiente y repetir el mismo POST cuando Whisper termina localmente. `dashboard_fg` no descarga ni abre `media_path`, no ejecuta Whisper y no envia el audio a proveedores externos.
+
+Primer POST:
+
+```json
+{
+  "account_id": "default",
+  "group_jid": "120363426378425507@g.us",
+  "message_id": "ID-REAL-DEL-MENSAJE",
+  "timestamp": "2026-07-10T17:30:00-03:00",
+  "body": "",
+  "message_type": "audio/ogg",
+  "media_type": "audio/ogg",
+  "media_path": "/ruta/local/del/audio.ogg",
+  "transcription_status": "pending"
+}
+```
+
+Responde `201 Created`. El segundo POST conserva la misma identidad:
+
+```json
+{
+  "account_id": "default",
+  "group_jid": "120363426378425507@g.us",
+  "message_id": "ID-REAL-DEL-MENSAJE",
+  "timestamp": "2026-07-10T17:30:00-03:00",
+  "body": "",
+  "message_type": "audio/ogg",
+  "media_type": "audio/ogg",
+  "media_path": "/ruta/local/del/audio.ogg",
+  "transcription": "Texto transcripto localmente por Whisper.",
+  "transcription_status": "completed"
+}
+```
+
+Responde `200 OK` con `created: false`, completa `transcribed_at` y limpia `transcription_error`. Sólo se actualizan los campos de transcripcion: el payload y contenido originales permanecen intactos.
+
+Para un fallo se usa `transcription_status: "failed"` y una descripcion tecnica breve en `transcription_error`. Los estados admitidos son vacio, `pending`, `processing`, `completed` y `failed`. La transcripcion se limita a 20.000 caracteres y el error a 1.000; no se aceptan trazas ni marcadores de secretos.
+
+Una transcripcion completada y no vacia nunca se sobrescribe mediante ingesta. Una futura correccion manual debe usar un endpoint administrativo diferente.
+
+La pantalla JWT del dueno consume `GET /api/forestal-bot/whatsapp/owner/messages/`. Esta ruta no devuelve `media_path` ni `group_jid`; el token de OpenClaw no se expone al navegador.
+
 ## Administrar grupos
 
 Todos los endpoints usan el mismo encabezado Bearer:
