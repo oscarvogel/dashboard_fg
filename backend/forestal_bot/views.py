@@ -42,6 +42,13 @@ def prepare_transcription_defaults(defaults):
     return defaults
 
 
+def prepare_image_analysis_defaults(defaults):
+    if defaults.get("image_analysis_status") == "completed":
+        defaults["image_analyzed_at"] = timezone.now()
+        defaults["image_analysis_error"] = ""
+    return defaults
+
+
 def update_existing_transcription(message, validated_data):
     if message.transcription_status == "completed" and message.transcription:
         return
@@ -75,6 +82,39 @@ def update_existing_transcription(message, validated_data):
         message.save(update_fields=update_fields)
 
 
+def update_existing_image_analysis(message, validated_data):
+    if message.image_analysis_status == "completed" and message.image_description:
+        return
+
+    incoming_status = validated_data.get("image_analysis_status", "")
+    update_fields = []
+    if incoming_status in ("pending", "processing"):
+        message.image_analysis_status = incoming_status
+        update_fields.append("image_analysis_status")
+    elif incoming_status == "failed":
+        message.image_analysis_status = "failed"
+        message.image_analysis_error = validated_data.get("image_analysis_error", "")
+        message.image_analyzed_at = None
+        update_fields.extend(
+            ["image_analysis_status", "image_analysis_error", "image_analyzed_at"]
+        )
+    elif incoming_status == "completed":
+        message.image_description = validated_data["image_description"]
+        message.image_analysis_status = "completed"
+        message.image_analysis_error = ""
+        message.image_analyzed_at = timezone.now()
+        update_fields.extend(
+            [
+                "image_description",
+                "image_analysis_status",
+                "image_analysis_error",
+                "image_analyzed_at",
+            ]
+        )
+    if update_fields:
+        message.save(update_fields=update_fields)
+
+
 class WhatsAppMessageCreateView(APIView):
     authentication_classes = []
     permission_classes = [OpenClawBearerPermission]
@@ -93,8 +133,10 @@ class WhatsAppMessageCreateView(APIView):
             field: validated_data.pop(field)
             for field in ("account_id", "group_jid", "message_id")
         }
-        defaults = prepare_transcription_defaults(
-            {**validated_data, "raw_json": raw_json}
+        defaults = prepare_image_analysis_defaults(
+            prepare_transcription_defaults(
+                {**validated_data, "raw_json": raw_json}
+            )
         )
 
         try:
@@ -109,6 +151,7 @@ class WhatsAppMessageCreateView(APIView):
                     message.save(update_fields=["group"])
                 if not created:
                     update_existing_transcription(message, validated_data)
+                    update_existing_image_analysis(message, validated_data)
         except IntegrityError:
             message = WhatsAppMessage.objects.get(**identity)
             created = False

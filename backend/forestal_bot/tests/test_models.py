@@ -74,6 +74,19 @@ class WhatsAppMessageTests(TestCase):
             {"", "pending", "processing", "completed", "failed"},
         )
 
+    def test_image_analysis_fields_have_compatible_defaults_and_status_choices(self):
+        message = WhatsAppMessage.objects.create(**self.message_data())
+
+        self.assertEqual(message.image_description, "")
+        self.assertEqual(message.image_analysis_status, "")
+        self.assertEqual(message.image_analysis_error, "")
+        self.assertIsNone(message.image_analyzed_at)
+        status_field = WhatsAppMessage._meta.get_field("image_analysis_status")
+        self.assertEqual(
+            {value for value, _label in status_field.choices},
+            {"", "pending", "processing", "completed", "failed"},
+        )
+
     def test_message_identity_is_unique(self):
         WhatsAppMessage.objects.create(**self.message_data())
 

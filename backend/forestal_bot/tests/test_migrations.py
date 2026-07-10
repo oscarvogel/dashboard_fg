@@ -6,7 +6,7 @@ from django.test import TransactionTestCase
 class WhatsAppGroupDataMigrationTests(TransactionTestCase):
     available_apps = ["forestal_bot"]
     migrate_from = ("forestal_bot", "0002_whatsappmessage_forestal_wa_ts_created_idx_and_more")
-    migrate_to = ("forestal_bot", "0005_whatsappmessage_transcribed_at_and_more")
+    migrate_to = ("forestal_bot", "0006_whatsappmessage_image_analysis_error_and_more")
 
     def setUp(self):
         super().setUp()
@@ -76,3 +76,7 @@ class WhatsAppGroupDataMigrationTests(TransactionTestCase):
         self.assertEqual(migrated_message.transcription_status, "")
         self.assertEqual(migrated_message.transcription_error, "")
         self.assertIsNone(migrated_message.transcribed_at)
+        self.assertEqual(migrated_message.image_description, "")
+        self.assertEqual(migrated_message.image_analysis_status, "")
+        self.assertEqual(migrated_message.image_analysis_error, "")
+        self.assertIsNone(migrated_message.image_analyzed_at)
