@@ -31,6 +31,8 @@ class RegistroProduccionDiarioSerializer(serializers.ModelSerializer):
             'UN',
             'operacion',
             'stock_abc',
+            'hr_disposicion',
+            'hr_remolque',
         ]
 
     # Opcional: puedes formatear los campos si lo necesitas
@@ -46,6 +48,8 @@ class RegistroProduccionDiarioSerializer(serializers.ModelSerializer):
             "combustible": float(data["combustible"]),
             "aceite_cadena": float(data["aceite_cadena"]),
             "stock_abc": float(data["stock_abc"]),
+            "hr_disposicion": float(data["hr_disposicion"]),
+            "hr_remolque": float(data["hr_remolque"]),
         }    
 
 class RegistroProduccionSerializer(serializers.ModelSerializer):
@@ -79,6 +83,7 @@ class RegistroProduccionSerializer(serializers.ModelSerializer):
             'equipo_detalle',
             'stock_abc',
             'hr_disposicion',
+            'hr_remolque',
             'acta',
             'aceite_hidraulico',
             'unidad_negocio_detalle',
@@ -123,7 +128,6 @@ class CargaCombustibleSerializer(serializers.ModelSerializer):
 
     def get_tipo_mov_display(self, obj):
         return dict(CargaCombustible.tipo_mov.field.choices).get(obj.tipo_mov, obj.tipo_mov)
-
 class EquipoSerializer(serializers.ModelSerializer):
     """feature/equipo-aliases (2026-07-08) — Serializer para equipos con aliases."""
     tipo_movil_detalle = serializers.CharField(source='tipo_movil.detalle', read_only=True, default=None)
