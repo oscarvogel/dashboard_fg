@@ -90,7 +90,7 @@ WSGI_APPLICATION = 'produccion_api.wsgi.application'
 DATABASES = {
     'default': dj_database_url.config(
         default=os.getenv('DATABASE_URL'),
-        engine='django.db.backends.mysql',
+        engine=os.getenv('DJANGO_DB_ENGINE', 'django.db.backends.mysql'),
         conn_max_age=600,
         ssl_require=False,
     )
