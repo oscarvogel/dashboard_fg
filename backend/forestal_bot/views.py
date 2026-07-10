@@ -5,9 +5,28 @@ from rest_framework import serializers, status
 from rest_framework.response import Response
 from rest_framework.views import APIView
 
-from forestal_bot.models import WhatsAppMessage
+from forestal_bot.models import (
+    UNIDENTIFIED_GROUP_NAME,
+    WhatsAppGroup,
+    WhatsAppMessage,
+)
 from forestal_bot.permissions import OpenClawBearerPermission
-from forestal_bot.serializers import WhatsAppMessageSerializer
+from forestal_bot.serializers import WhatsAppGroupSerializer, WhatsAppMessageSerializer
+
+
+def resolve_message_group(validated_data):
+    account_id = validated_data["account_id"]
+    group_jid = validated_data["group_jid"]
+    incoming_name = validated_data.get("group_name", "").strip()
+    group, _ = WhatsAppGroup.objects.get_or_create(
+        account_id=account_id,
+        jid=group_jid,
+        defaults={"name": incoming_name or UNIDENTIFIED_GROUP_NAME},
+    )
+    if incoming_name and group.name in ("", UNIDENTIFIED_GROUP_NAME):
+        group.name = incoming_name
+        group.save(update_fields=["name", "updated_at"])
+    return group
 
 
 class WhatsAppMessageCreateView(APIView):
@@ -32,10 +51,14 @@ class WhatsAppMessageCreateView(APIView):
 
         try:
             with transaction.atomic():
+                group = resolve_message_group({**identity, **validated_data})
                 message, created = WhatsAppMessage.objects.get_or_create(
                     **identity,
-                    defaults=defaults,
+                    defaults={**defaults, "group": group},
                 )
+                if not created and message.group_id is None:
+                    message.group = group
+                    message.save(update_fields=["group"])
         except IntegrityError:
             message = WhatsAppMessage.objects.get(**identity)
             created = False
@@ -55,7 +78,9 @@ class WhatsAppMessageRecentView(APIView):
     permission_classes = [OpenClawBearerPermission]
 
     def get(self, request):
-        queryset = WhatsAppMessage.objects.order_by("-timestamp", "-created_at")
+        queryset = WhatsAppMessage.objects.select_related("group").order_by(
+            "-timestamp", "-created_at"
+        )
 
         group_jid = request.query_params.get("group_jid")
         if group_jid is not None:
@@ -81,3 +106,43 @@ class WhatsAppMessageRecentView(APIView):
         limit = min(limit, 500)
 
         return Response(WhatsAppMessageSerializer(queryset[:limit], many=True).data)
+
+
+class WhatsAppGroupListCreateView(APIView):
+    authentication_classes = []
+    permission_classes = [OpenClawBearerPermission]
+
+    def get(self, request):
+        queryset = WhatsAppGroup.objects.all()
+        account_id = request.query_params.get("account_id")
+        if account_id is not None:
+            queryset = queryset.filter(account_id=account_id)
+        active = request.query_params.get("active")
+        if active is not None:
+            try:
+                active = serializers.BooleanField().run_validation(active)
+            except serializers.ValidationError as exc:
+                raise serializers.ValidationError({"active": exc.detail}) from exc
+            queryset = queryset.filter(active=active)
+        return Response(WhatsAppGroupSerializer(queryset, many=True).data)
+
+    def post(self, request):
+        serializer = WhatsAppGroupSerializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        serializer.save()
+        return Response(serializer.data, status=status.HTTP_201_CREATED)
+
+
+class WhatsAppGroupDetailView(APIView):
+    authentication_classes = []
+    permission_classes = [OpenClawBearerPermission]
+
+    def patch(self, request, pk):
+        try:
+            group = WhatsAppGroup.objects.get(pk=pk)
+        except WhatsAppGroup.DoesNotExist:
+            return Response(status=status.HTTP_404_NOT_FOUND)
+        serializer = WhatsAppGroupSerializer(group, data=request.data, partial=True)
+        serializer.is_valid(raise_exception=True)
+        serializer.save()
+        return Response(serializer.data)

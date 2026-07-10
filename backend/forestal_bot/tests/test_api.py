@@ -3,7 +3,7 @@ from django.urls import reverse
 from rest_framework import status
 from rest_framework.test import APITestCase
 
-from forestal_bot.models import WhatsAppMessage
+from forestal_bot.models import WhatsAppGroup, WhatsAppMessage
 
 
 @override_settings(OPENCLAW_INGEST_TOKEN="test-openclaw-token")
@@ -89,6 +89,59 @@ class WhatsAppMessageCreateAPITests(APITestCase):
         self.assertTrue(response.data["created"])
         message = WhatsAppMessage.objects.get()
         self.assertEqual(message.raw_json, self.payload)
+        self.assertEqual(message.group.name, "Operaciones Forestales")
+
+    def test_post_links_existing_group(self):
+        group = WhatsAppGroup.objects.create(
+            account_id="account-1",
+            jid=self.payload["group_jid"],
+            name="Nombre administrado",
+        )
+
+        response = self.client.post(
+            self.url,
+            {**self.payload, "group_name": "Nombre entrante"},
+            format="json",
+            HTTP_AUTHORIZATION="Bearer test-openclaw-token",
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
+        self.assertEqual(WhatsAppMessage.objects.get().group, group)
+        group.refresh_from_db()
+        self.assertEqual(group.name, "Nombre administrado")
+
+    def test_incoming_name_replaces_only_provisional_name(self):
+        group = WhatsAppGroup.objects.create(
+            account_id="account-1",
+            jid=self.payload["group_jid"],
+            name="Grupo sin identificar",
+        )
+
+        self.client.post(
+            self.url,
+            self.payload,
+            format="json",
+            HTTP_AUTHORIZATION="Bearer test-openclaw-token",
+        )
+
+        group.refresh_from_db()
+        self.assertEqual(group.name, "Operaciones Forestales")
+
+    def test_payload_without_group_name_creates_provisional_group(self):
+        payload = dict(self.payload)
+        payload.pop("group_name")
+
+        response = self.client.post(
+            self.url,
+            payload,
+            format="json",
+            HTTP_AUTHORIZATION="Bearer test-openclaw-token",
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
+        group = WhatsAppGroup.objects.get()
+        self.assertEqual(group.name, "Grupo sin identificar")
+        self.assertEqual(WhatsAppMessage.objects.get().group, group)
 
     def test_post_rejects_timestamp_without_timezone_offset(self):
         payload = {**self.payload, "timestamp": "2026-07-10T10:15:30"}
@@ -155,6 +208,7 @@ class WhatsAppMessageCreateAPITests(APITestCase):
         self.assertEqual(duplicate_response.status_code, status.HTTP_200_OK)
         self.assertFalse(duplicate_response.data["created"])
         self.assertEqual(WhatsAppMessage.objects.count(), 1)
+        self.assertEqual(WhatsAppGroup.objects.count(), 1)
         message = WhatsAppMessage.objects.get()
         self.assertEqual(message.body, self.payload["body"])
         self.assertEqual(message.raw_json, self.payload)
@@ -270,6 +324,27 @@ class WhatsAppMessageRecentAPITests(APITestCase):
             ["newest", "oldest"],
         )
 
+    def test_get_recent_returns_group_and_display_name(self):
+        group = WhatsAppGroup.objects.create(
+            account_id="account-1",
+            jid="group-a@g.us",
+            name="Grupo de prueba",
+        )
+        message = self.create_message("message-1", "2026-07-10T11:00:00-03:00")
+        message.group = group
+        message.group_name = "Nombre histórico"
+        message.save(update_fields=["group", "group_name"])
+
+        response = self.client.get(self.url, **self.headers)
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(
+            response.data[0]["group"],
+            {"id": group.id, "jid": group.jid, "name": group.name},
+        )
+        self.assertEqual(response.data[0]["group_display_name"], "Grupo de prueba")
+
+
     def test_get_recent_filters_by_exact_group_jid(self):
         self.create_message("selected", "2026-07-10T11:00:00-03:00")
         self.create_message(
@@ -361,3 +436,53 @@ class WhatsAppMessageRecentAPITests(APITestCase):
 
         self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
         self.assertEqual(response.data, {"limit": ["A positive integer is required."]})
+
+
+@override_settings(OPENCLAW_INGEST_TOKEN="test-openclaw-token")
+class WhatsAppGroupAPITests(APITestCase):
+    def setUp(self):
+        self.url = reverse("forestal_bot:whatsapp-group-list")
+        self.headers = {"HTTP_AUTHORIZATION": "Bearer test-openclaw-token"}
+
+    def test_endpoints_without_token_are_forbidden(self):
+        self.assertEqual(self.client.get(self.url).status_code, status.HTTP_403_FORBIDDEN)
+        self.assertEqual(
+            self.client.post(self.url, {}, format="json").status_code,
+            status.HTTP_403_FORBIDDEN,
+        )
+
+    def test_authenticated_create_list_filter_and_patch(self):
+        create_response = self.client.post(
+            self.url,
+            {"account_id": "account-1", "jid": "group-a@g.us", "name": "Grupo A"},
+            format="json",
+            **self.headers,
+        )
+        self.assertEqual(create_response.status_code, status.HTTP_201_CREATED)
+        group_id = create_response.data["id"]
+        WhatsAppGroup.objects.create(
+            account_id="account-2", jid="group-b@g.us", name="Grupo B", active=False
+        )
+
+        list_response = self.client.get(
+            self.url, {"account_id": "account-1", "active": "true"}, **self.headers
+        )
+        self.assertEqual(list_response.status_code, status.HTTP_200_OK)
+        self.assertEqual([row["id"] for row in list_response.data], [group_id])
+
+        patch_response = self.client.patch(
+            reverse("forestal_bot:whatsapp-group-detail", args=[group_id]),
+            {"name": "Grupo renombrado"},
+            format="json",
+            **self.headers,
+        )
+        self.assertEqual(patch_response.status_code, status.HTTP_200_OK)
+        self.assertEqual(patch_response.data["name"], "Grupo renombrado")
+
+    def test_duplicate_account_and_jid_returns_400(self):
+        payload = {"account_id": "account-1", "jid": "group-a@g.us", "name": "Grupo A"}
+        self.client.post(self.url, payload, format="json", **self.headers)
+
+        response = self.client.post(self.url, payload, format="json", **self.headers)
+
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
