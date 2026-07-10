@@ -47,6 +47,7 @@
               <div class="flex items-center gap-2">
                 <span class="truncate font-semibold text-slate-900">{{ message.group_display_name }}</span>
                 <span v-if="isAudio(message)" class="rounded-full bg-emerald-50 px-2 py-0.5 text-xs font-semibold text-emerald-700">Audio</span>
+                <span v-else-if="isImage(message)" class="rounded-full bg-blue-50 px-2 py-0.5 text-xs font-semibold text-blue-700">Imagen</span>
               </div>
               <p class="mt-1 truncate text-sm text-slate-500">{{ senderLabel(message) }}</p>
             </div>
@@ -73,6 +74,25 @@
                 <span class="font-medium">No se pudo transcribir</span>
               </div>
               <p v-else class="text-sm italic text-slate-500">Audio recibido sin transcripción.</p>
+            </template>
+            <template v-else-if="isImage(message)">
+              <div v-if="message.image_analysis_status === 'completed' && message.image_description" class="flex gap-3">
+                <div class="mt-0.5 flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-blue-100 text-lg">🔎</div>
+                <div>
+                  <p class="mb-1 text-xs font-semibold uppercase tracking-wide text-blue-700">Descripción orientativa</p>
+                  <p class="whitespace-pre-wrap text-sm leading-6 text-slate-700">{{ message.image_description }}</p>
+                  <p class="mt-3 text-xs text-slate-500">El análisis automático es orientativo y no reemplaza una inspección técnica.</p>
+                </div>
+              </div>
+              <div v-else-if="['pending', 'processing'].includes(message.image_analysis_status)" class="flex items-center gap-3 text-sm text-blue-700">
+                <span class="h-2.5 w-2.5 animate-pulse rounded-full bg-blue-400" />
+                <span class="font-medium">Analizando imagen…</span>
+              </div>
+              <div v-else-if="message.image_analysis_status === 'failed'" class="flex items-center gap-3 text-sm text-red-700">
+                <span class="flex h-8 w-8 items-center justify-center rounded-full bg-red-50">!</span>
+                <span class="font-medium">No se pudo analizar la imagen</span>
+              </div>
+              <p v-else class="text-sm italic text-slate-500">Imagen recibida sin análisis.</p>
             </template>
             <p v-else class="whitespace-pre-wrap text-sm leading-6 text-slate-700">{{ message.body || 'Mensaje sin texto.' }}</p>
           </div>
@@ -108,6 +128,10 @@ const fetchMessages = async () => {
 const isAudio = (message) =>
   String(message.message_type || '').startsWith('audio') ||
   String(message.media_type || '').startsWith('audio')
+
+const isImage = (message) =>
+  String(message.message_type || '').startsWith('image') ||
+  String(message.media_type || '').startsWith('image')
 
 const senderLabel = (message) => message.sender_name || message.sender_id || 'Remitente sin identificar'
 

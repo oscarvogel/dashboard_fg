@@ -10,6 +10,7 @@ TRANSCRIPTION_STATUS_CHOICES = [
     ("completed", "Completada"),
     ("failed", "Fallida"),
 ]
+IMAGE_ANALYSIS_STATUS_CHOICES = TRANSCRIPTION_STATUS_CHOICES
 
 
 class WhatsAppGroup(models.Model):
@@ -81,6 +82,23 @@ class WhatsAppMessage(models.Model):
         validators=[MaxLengthValidator(1000)],
     )
     transcribed_at = models.DateTimeField(null=True, blank=True)
+    image_description = models.TextField(
+        blank=True,
+        default="",
+        validators=[MaxLengthValidator(10000)],
+    )
+    image_analysis_status = models.CharField(
+        max_length=32,
+        blank=True,
+        default="",
+        choices=IMAGE_ANALYSIS_STATUS_CHOICES,
+    )
+    image_analysis_error = models.TextField(
+        blank=True,
+        default="",
+        validators=[MaxLengthValidator(500)],
+    )
+    image_analyzed_at = models.DateTimeField(null=True, blank=True)
     gated_out = models.BooleanField(default=False)
     would_process_agent = models.BooleanField(default=False)
     skip_reason = models.CharField(max_length=255, blank=True)

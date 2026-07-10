@@ -62,9 +62,30 @@ class WhatsAppMessageSerializer(serializers.ModelSerializer):
             raise serializers.ValidationError(
                 {"transcription": ["A completed transcription requires text."]}
             )
+        if attrs.get("image_analysis_status") == "completed" and not attrs.get(
+            "image_description", ""
+        ).strip():
+            raise serializers.ValidationError(
+                {"image_description": ["A completed image analysis requires a description."]}
+            )
         return attrs
 
     def validate_transcription_error(self, value):
+        forbidden_markers = (
+            "traceback (most recent call last)",
+            "authorization: bearer",
+            "openclaw_ingest_token",
+            "secret_key",
+            "database_url",
+        )
+        normalized = value.lower()
+        if any(marker in normalized for marker in forbidden_markers):
+            raise serializers.ValidationError(
+                "Provide a short technical description without traces or secrets."
+            )
+        return value
+
+    def validate_image_analysis_error(self, value):
         forbidden_markers = (
             "traceback (most recent call last)",
             "authorization: bearer",
@@ -90,6 +111,7 @@ class WhatsAppMessageSerializer(serializers.ModelSerializer):
             "synced_at",
             "created_at",
             "transcribed_at",
+            "image_analyzed_at",
         )
         validators = []
         extra_kwargs = {
@@ -117,5 +139,9 @@ class WhatsAppOwnerMessageSerializer(WhatsAppMessageSerializer):
             "transcription_status",
             "transcription_error",
             "transcribed_at",
+            "image_description",
+            "image_analysis_status",
+            "image_analysis_error",
+            "image_analyzed_at",
         )
         read_only_fields = fields

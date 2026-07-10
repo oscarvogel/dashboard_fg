@@ -373,6 +373,165 @@ class WhatsAppMessageCreateAPITests(APITestCase):
         ):
             self.assertIn(field, response.data["message"])
 
+    def test_image_pending_then_completed_updates_only_image_analysis_fields(self):
+        headers = {"HTTP_AUTHORIZATION": "Bearer test-openclaw-token"}
+        pending_payload = {
+            **self.payload,
+            "body": "",
+            "message_type": "image/jpeg",
+            "media_type": "image/jpeg",
+            "media_path": "/local/private/image.jpg",
+            "image_analysis_status": "pending",
+        }
+        pending_response = self.client.post(self.url, pending_payload, format="json", **headers)
+        original = WhatsAppMessage.objects.get()
+        original_raw_json = original.raw_json
+        original_timestamp = original.timestamp
+
+        completed_response = self.client.post(
+            self.url,
+            {
+                **pending_payload,
+                "body": "NO DEBE REEMPLAZAR",
+                "image_description": "Se observa una manguera con una fisura longitudinal.",
+                "image_analysis_status": "completed",
+                "image_analysis_error": "error anterior",
+            },
+            format="json",
+            **headers,
+        )
+
+        self.assertEqual(pending_response.status_code, status.HTTP_201_CREATED)
+        self.assertEqual(completed_response.status_code, status.HTTP_200_OK)
+        self.assertFalse(completed_response.data["created"])
+        self.assertEqual(WhatsAppMessage.objects.count(), 1)
+        message = WhatsAppMessage.objects.get()
+        self.assertEqual(
+            message.image_description,
+            "Se observa una manguera con una fisura longitudinal.",
+        )
+        self.assertEqual(message.image_analysis_status, "completed")
+        self.assertEqual(message.image_analysis_error, "")
+        self.assertIsNotNone(message.image_analyzed_at)
+        self.assertEqual(message.body, "")
+        self.assertEqual(message.raw_json, original_raw_json)
+        self.assertEqual(message.timestamp, original_timestamp)
+
+    def test_failed_image_analysis_stores_bounded_error_before_completion(self):
+        headers = {"HTTP_AUTHORIZATION": "Bearer test-openclaw-token"}
+        self.client.post(
+            self.url,
+            {**self.payload, "image_analysis_status": "pending"},
+            format="json",
+            **headers,
+        )
+        response = self.client.post(
+            self.url,
+            {
+                **self.payload,
+                "image_analysis_status": "failed",
+                "image_analysis_error": "Formato de imagen no soportado",
+            },
+            format="json",
+            **headers,
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        message = WhatsAppMessage.objects.get()
+        self.assertEqual(message.image_analysis_status, "failed")
+        self.assertEqual(message.image_analysis_error, "Formato de imagen no soportado")
+        self.assertIsNone(message.image_analyzed_at)
+
+    def test_completed_image_description_cannot_be_replaced_or_failed(self):
+        headers = {"HTTP_AUTHORIZATION": "Bearer test-openclaw-token"}
+        completed = {
+            **self.payload,
+            "image_description": "Descripción inicial",
+            "image_analysis_status": "completed",
+        }
+        self.client.post(self.url, completed, format="json", **headers)
+        self.client.post(
+            self.url,
+            {
+                **self.payload,
+                "image_description": "Intento de reemplazo",
+                "image_analysis_status": "completed",
+            },
+            format="json",
+            **headers,
+        )
+        response = self.client.post(
+            self.url,
+            {
+                **self.payload,
+                "image_analysis_status": "failed",
+                "image_analysis_error": "Error posterior",
+            },
+            format="json",
+            **headers,
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        message = WhatsAppMessage.objects.get()
+        self.assertEqual(message.image_description, "Descripción inicial")
+        self.assertEqual(message.image_analysis_status, "completed")
+        self.assertEqual(message.image_analysis_error, "")
+
+    def test_invalid_or_oversized_image_analysis_fields_return_400(self):
+        headers = {"HTTP_AUTHORIZATION": "Bearer test-openclaw-token"}
+        responses = [
+            self.client.post(
+                self.url,
+                {**self.payload, "image_analysis_status": "unknown"},
+                format="json",
+                **headers,
+            ),
+            self.client.post(
+                self.url,
+                {**self.payload, "message_id": "image-2", "image_description": "x" * 10001},
+                format="json",
+                **headers,
+            ),
+            self.client.post(
+                self.url,
+                {**self.payload, "message_id": "image-3", "image_analysis_error": "x" * 501},
+                format="json",
+                **headers,
+            ),
+            self.client.post(
+                self.url,
+                {
+                    **self.payload,
+                    "message_id": "image-4",
+                    "image_analysis_status": "failed",
+                    "image_analysis_error": "Traceback (most recent call last): decoder failed",
+                },
+                format="json",
+                **headers,
+            ),
+        ]
+
+        self.assertTrue(
+            all(response.status_code == status.HTTP_400_BAD_REQUEST for response in responses)
+        )
+
+    def test_old_payload_returns_new_image_analysis_fields(self):
+        response = self.client.post(
+            self.url,
+            self.payload,
+            format="json",
+            HTTP_AUTHORIZATION="Bearer test-openclaw-token",
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
+        for field in (
+            "image_description",
+            "image_analysis_status",
+            "image_analysis_error",
+            "image_analyzed_at",
+        ):
+            self.assertIn(field, response.data["message"])
+
     def test_duplicate_post_returns_existing_message_without_overwriting_it(self):
         headers = {"HTTP_AUTHORIZATION": "Bearer test-openclaw-token"}
         first_response = self.client.post(
@@ -529,6 +688,13 @@ class WhatsAppMessageRecentAPITests(APITestCase):
             {"id": group.id, "jid": group.jid, "name": group.name},
         )
         self.assertEqual(response.data[0]["group_display_name"], "Grupo de prueba")
+        for field in (
+            "image_description",
+            "image_analysis_status",
+            "image_analysis_error",
+            "image_analyzed_at",
+        ):
+            self.assertIn(field, response.data[0])
 
 
     def test_get_recent_filters_by_exact_group_jid(self):
@@ -718,3 +884,10 @@ class WhatsAppOwnerMessageAPITests(APITestCase):
         self.assertEqual(row["transcription_status"], "completed")
         self.assertNotIn("media_path", row)
         self.assertNotIn("group_jid", row)
+        for field in (
+            "image_description",
+            "image_analysis_status",
+            "image_analysis_error",
+            "image_analyzed_at",
+        ):
+            self.assertIn(field, row)
