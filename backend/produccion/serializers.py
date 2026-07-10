@@ -1,5 +1,5 @@
 from rest_framework import serializers
-from .models import CargaCombustible, Empleado, RegistroProduccion
+from .models import CargaCombustible, Empleado, Equipo, RegistroProduccion
 
 # class RegistroProduccionSerializer(serializers.ModelSerializer):
 #     class Meta:
@@ -128,3 +128,17 @@ class CargaCombustibleSerializer(serializers.ModelSerializer):
 
     def get_tipo_mov_display(self, obj):
         return dict(CargaCombustible.tipo_mov.field.choices).get(obj.tipo_mov, obj.tipo_mov)
+class EquipoSerializer(serializers.ModelSerializer):
+    """feature/equipo-aliases (2026-07-08) — Serializer para equipos con aliases."""
+    tipo_movil_detalle = serializers.CharField(source='tipo_movil.detalle', read_only=True, default=None)
+    unidad_negocio_nombre = serializers.CharField(source='unidad_negocio.nombre', read_only=True, default=None)
+
+    class Meta:
+        model = Equipo
+        fields = [
+            'id', 'patente', 'detalle', 'codigo_fg', 'modelo_normalizado',
+            'aliases', 'ultima_sync_filtros',
+            'tipo_movil', 'tipo_movil_detalle',
+            'unidad_negocio', 'unidad_negocio_nombre',
+            'baja',
+        ]
