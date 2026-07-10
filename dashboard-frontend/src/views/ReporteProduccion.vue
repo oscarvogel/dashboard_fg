@@ -172,7 +172,8 @@ export default {
         const validValues = [
             'operacion', 'operador', 'equipo', 'hr_inicio', 'hr_fin', 'm3',
             'tn_despachadas', 'produccion', 'unidad_produccion', 'hrs_no_op',
-            'plantas', 'combustible', 'aceite_cadena', 'aceite_hidraulico', 'predio', 'stock_abc', 'acta'
+            'hr_disposicion', 'hr_remolque', 'plantas', 'combustible',
+            'aceite_cadena', 'aceite_hidraulico', 'predio', 'stock_abc', 'acta'
         ];
         selectedCampos = parsed.filter(campo => validValues.includes(campo));
         } catch (e) {
@@ -209,6 +210,8 @@ export default {
         { value: 'produccion', label: 'Producción' },
         { value: 'unidad_produccion', label: 'Unidad Producción' },
         { value: 'hrs_no_op', label: 'Hrs No Operativas' },
+        { value: 'hr_disposicion', label: 'Hrs a Disposición' },
+        { value: 'hr_remolque', label: 'Hrs Remolque' },
         { value: 'plantas', label: 'Plantas' },
         { value: 'combustible', label: 'Combustible (L)' },
         { value: 'aceite_cadena', label: 'Aceite Cadena (L)' },

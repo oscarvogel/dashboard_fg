@@ -74,6 +74,7 @@ class RegistroProduccion(models.Model):
     acta = models.CharField(max_length=50, null=True, blank=True)
     cod_un = models.ForeignKey(UnidadNegocio, on_delete=models.CASCADE, db_column='cod_un', null=True, blank=True)
     hr_disposicion = models.DecimalField(max_digits=12, decimal_places=2, default=0.00)
+    hr_remolque = models.DecimalField(max_digits=12, decimal_places=2, default=0.00)
     espada = models.BooleanField(default=False)
     puntera = models.BooleanField(default=False)
     cadena = models.BooleanField(default=False)

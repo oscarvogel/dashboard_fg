@@ -31,6 +31,8 @@ class RegistroProduccionDiarioSerializer(serializers.ModelSerializer):
             'UN',
             'operacion',
             'stock_abc',
+            'hr_disposicion',
+            'hr_remolque',
         ]
 
     # Opcional: puedes formatear los campos si lo necesitas
@@ -46,6 +48,8 @@ class RegistroProduccionDiarioSerializer(serializers.ModelSerializer):
             "combustible": float(data["combustible"]),
             "aceite_cadena": float(data["aceite_cadena"]),
             "stock_abc": float(data["stock_abc"]),
+            "hr_disposicion": float(data["hr_disposicion"]),
+            "hr_remolque": float(data["hr_remolque"]),
         }    
 
 class RegistroProduccionSerializer(serializers.ModelSerializer):
@@ -79,6 +83,7 @@ class RegistroProduccionSerializer(serializers.ModelSerializer):
             'equipo_detalle',
             'stock_abc',
             'hr_disposicion',
+            'hr_remolque',
             'acta',
             'aceite_hidraulico',
             'unidad_negocio_detalle',
