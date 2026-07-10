@@ -22,6 +22,7 @@ pymysql.install_as_MySQLdb()
 BASE_DIR = Path(__file__).resolve().parent.parent
 
 dotenv.load_dotenv()
+OPENCLAW_INGEST_TOKEN = os.getenv('OPENCLAW_INGEST_TOKEN', '')
 # Quick-start development settings - unsuitable for production
 # See https://docs.djangoproject.com/en/5.1/howto/deployment/checklist/
 
