@@ -15,4 +15,10 @@ class OpenClawBearerPermission(BasePermission):
         if len(parts) != 2 or parts[0].lower() != "bearer" or not parts[1]:
             return False
 
-        return secrets.compare_digest(parts[1], configured_token)
+        try:
+            supplied_token = parts[1].encode("ascii")
+            expected_token = configured_token.encode("ascii")
+        except (AttributeError, UnicodeEncodeError):
+            return False
+
+        return secrets.compare_digest(supplied_token, expected_token)

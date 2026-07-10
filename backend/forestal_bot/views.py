@@ -1,3 +1,5 @@
+from collections.abc import Mapping
+
 from django.db import IntegrityError, transaction
 from rest_framework import serializers, status
 from rest_framework.response import Response
@@ -13,6 +15,10 @@ class WhatsAppMessageCreateView(APIView):
     permission_classes = [OpenClawBearerPermission]
 
     def post(self, request):
+        if not isinstance(request.data, Mapping):
+            raise serializers.ValidationError(
+                {"non_field_errors": ["Expected a JSON object."]}
+            )
         raw_json = dict(request.data)
         serializer = WhatsAppMessageSerializer(data=request.data)
         serializer.is_valid(raise_exception=True)

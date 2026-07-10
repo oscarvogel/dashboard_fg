@@ -45,6 +45,38 @@ class WhatsAppMessageCreateAPITests(APITestCase):
 
         self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
 
+    def test_post_with_non_ascii_bearer_header_is_forbidden(self):
+        response = self.client.post(
+            self.url,
+            self.payload,
+            format="json",
+            HTTP_AUTHORIZATION="Bearer test-openclaw-tokén",
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
+
+    @override_settings(OPENCLAW_INGEST_TOKEN="tökén")
+    def test_post_with_non_ascii_configured_token_is_forbidden(self):
+        response = self.client.post(
+            self.url,
+            self.payload,
+            format="json",
+            HTTP_AUTHORIZATION="Bearer tökén",
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
+
+    @override_settings(OPENCLAW_INGEST_TOKEN="")
+    def test_post_with_missing_configured_token_is_forbidden(self):
+        response = self.client.post(
+            self.url,
+            self.payload,
+            format="json",
+            HTTP_AUTHORIZATION="Bearer test-openclaw-token",
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
+
     def test_post_with_valid_token_creates_message_and_preserves_raw_payload(self):
         response = self.client.post(
             self.url,
@@ -57,6 +89,31 @@ class WhatsAppMessageCreateAPITests(APITestCase):
         self.assertTrue(response.data["created"])
         message = WhatsAppMessage.objects.get()
         self.assertEqual(message.raw_json, self.payload)
+
+    def test_post_rejects_timestamp_without_timezone_offset(self):
+        payload = {**self.payload, "timestamp": "2026-07-10T10:15:30"}
+
+        response = self.client.post(
+            self.url,
+            payload,
+            format="json",
+            HTTP_AUTHORIZATION="Bearer test-openclaw-token",
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertEqual(set(response.data), {"timestamp"})
+
+    def test_post_accepts_timestamp_with_z_timezone(self):
+        payload = {**self.payload, "timestamp": "2026-07-10T13:15:30Z"}
+
+        response = self.client.post(
+            self.url,
+            payload,
+            format="json",
+            HTTP_AUTHORIZATION="Bearer test-openclaw-token",
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
 
     def test_post_media_without_body_persists_empty_body(self):
         payload = {
@@ -134,6 +191,36 @@ class WhatsAppMessageCreateAPITests(APITestCase):
         self.assertEqual(
             set(response.data),
             {"account_id", "group_jid", "message_id", "timestamp"},
+        )
+
+    def test_post_with_json_scalar_root_returns_stable_validation_error(self):
+        response = self.client.generic(
+            "POST",
+            self.url,
+            "42",
+            content_type="application/json",
+            HTTP_AUTHORIZATION="Bearer test-openclaw-token",
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertEqual(
+            response.data,
+            {"non_field_errors": ["Expected a JSON object."]},
+        )
+
+    def test_post_with_non_pair_json_array_root_returns_stable_validation_error(self):
+        response = self.client.generic(
+            "POST",
+            self.url,
+            '["not-a-pair"]',
+            content_type="application/json",
+            HTTP_AUTHORIZATION="Bearer test-openclaw-token",
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertEqual(
+            response.data,
+            {"non_field_errors": ["Expected a JSON object."]},
         )
 
 
