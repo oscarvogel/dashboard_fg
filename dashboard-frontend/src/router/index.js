@@ -15,6 +15,7 @@ const LoginView = () => import('../views/LoginView.vue')
 const DashboardView = () => import('../views/DashboardView.vue')
 const ProduccionEjecutivaView = () => import('../views/ProduccionEjecutivaView.vue')
 const MantenimientoKPIs = () => import('../views/MantenimientoKPIs.vue')
+const MensajesWhatsApp = () => import('../views/MensajesWhatsApp.vue')
 
 const routes = [
   { path: '/', name: 'login', component: LoginView },
@@ -28,6 +29,12 @@ const routes = [
     path: '/dashboard-detallado',
     name: 'dashboard',
     component: DashboardView,
+    meta: { requiresAuth: true }
+  },
+  {
+    path: '/mensajes-whatsapp',
+    name: 'MensajesWhatsApp',
+    component: MensajesWhatsApp,
     meta: { requiresAuth: true }
   },
   {

@@ -114,8 +114,8 @@
               @click.stop="toggleControlOperativoDropdown"
               class="flex items-center space-x-2 px-4 py-2 rounded-lg text-sm font-medium hover:bg-white/10 transition-all duration-200 backdrop-blur-sm group"
               :class="{ 
-                'bg-emerald-600 text-white font-semibold shadow-lg': $route.path === '/maquinas-frente-operador' || $route.path === '/efectividad-servicios',
-                'hover:bg-white/10': !($route.path === '/maquinas-frente-operador' || $route.path === '/efectividad-servicios')
+                'bg-emerald-600 text-white font-semibold shadow-lg': $route.path === '/maquinas-frente-operador' || $route.path === '/efectividad-servicios' || $route.path === '/mensajes-whatsapp',
+                'hover:bg-white/10': !($route.path === '/maquinas-frente-operador' || $route.path === '/efectividad-servicios' || $route.path === '/mensajes-whatsapp')
               }"
             >
               <svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5 text-slate-300 group-hover:text-white transition-colors" viewBox="0 0 24 24" stroke="currentColor" fill="none">
@@ -219,7 +219,7 @@
             <button
               @click="toggleControlOperativoDropdown"
               class="flex items-center justify-between w-full p-3 rounded-lg hover:bg-white/10 transition-all duration-200"
-              :class="{ 'bg-emerald-600 font-medium shadow-lg': $route.path === '/maquinas-frente-operador' || $route.path === '/efectividad-servicios' }"
+              :class="{ 'bg-emerald-600 font-medium shadow-lg': $route.path === '/maquinas-frente-operador' || $route.path === '/efectividad-servicios' || $route.path === '/mensajes-whatsapp' }"
             >
               <div class="flex items-center space-x-3">
                 <svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5 text-slate-300" viewBox="0 0 24 24" stroke="currentColor" fill="none">
@@ -338,6 +338,14 @@ const menuItems = [
 
 // Submenú para Control Operativo
 const controlOperativoSubmenu = [
+  {
+    name: 'Mensajes WhatsApp',
+    path: '/mensajes-whatsapp',
+    xmlns: 'http://www.w3.org/2000/svg',
+    viewBox: '0 0 24 24',
+    iconClass: 'h-4 w-4 text-emerald-300',
+    iconPath: 'M8 10h.01M12 10h.01M16 10h.01M21 12a9 9 0 01-13.219 7.956L3 21l1.044-4.781A9 9 0 1121 12z'
+  },
   {
     name: 'Máquinas por Frente',
     path: '/maquinas-frente-operador',

@@ -1,7 +1,15 @@
 from django.db import models
+from django.core.validators import MaxLengthValidator
 
 
 UNIDENTIFIED_GROUP_NAME = "Grupo sin identificar"
+TRANSCRIPTION_STATUS_CHOICES = [
+    ("", "Sin estado"),
+    ("pending", "Pendiente"),
+    ("processing", "Procesando"),
+    ("completed", "Completada"),
+    ("failed", "Fallida"),
+]
 
 
 class WhatsAppGroup(models.Model):
@@ -56,6 +64,23 @@ class WhatsAppMessage(models.Model):
     message_type = models.CharField(max_length=255, blank=True)
     media_type = models.CharField(max_length=255, blank=True)
     media_path = models.TextField(blank=True, default="")
+    transcription = models.TextField(
+        blank=True,
+        default="",
+        validators=[MaxLengthValidator(20000)],
+    )
+    transcription_status = models.CharField(
+        max_length=32,
+        blank=True,
+        default="",
+        choices=TRANSCRIPTION_STATUS_CHOICES,
+    )
+    transcription_error = models.TextField(
+        blank=True,
+        default="",
+        validators=[MaxLengthValidator(1000)],
+    )
+    transcribed_at = models.DateTimeField(null=True, blank=True)
     gated_out = models.BooleanField(default=False)
     would_process_agent = models.BooleanField(default=False)
     skip_reason = models.CharField(max_length=255, blank=True)

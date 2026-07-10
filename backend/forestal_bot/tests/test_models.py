@@ -61,6 +61,19 @@ class WhatsAppMessageTests(TestCase):
         self.assertEqual(message.body, "")
         self.assertEqual(message.media_path, "media/incoming/photo.jpg")
 
+    def test_transcription_fields_have_compatible_defaults_and_status_choices(self):
+        message = WhatsAppMessage.objects.create(**self.message_data())
+
+        self.assertEqual(message.transcription, "")
+        self.assertEqual(message.transcription_status, "")
+        self.assertEqual(message.transcription_error, "")
+        self.assertIsNone(message.transcribed_at)
+        status_field = WhatsAppMessage._meta.get_field("transcription_status")
+        self.assertEqual(
+            {value for value, _label in status_field.choices},
+            {"", "pending", "processing", "completed", "failed"},
+        )
+
     def test_message_identity_is_unique(self):
         WhatsAppMessage.objects.create(**self.message_data())
 

@@ -55,6 +55,30 @@ class WhatsAppMessageSerializer(serializers.ModelSerializer):
             return obj.group.name
         return obj.group_name or obj.group_jid
 
+    def validate(self, attrs):
+        if attrs.get("transcription_status") == "completed" and not attrs.get(
+            "transcription", ""
+        ).strip():
+            raise serializers.ValidationError(
+                {"transcription": ["A completed transcription requires text."]}
+            )
+        return attrs
+
+    def validate_transcription_error(self, value):
+        forbidden_markers = (
+            "traceback (most recent call last)",
+            "authorization: bearer",
+            "openclaw_ingest_token",
+            "secret_key",
+            "database_url",
+        )
+        normalized = value.lower()
+        if any(marker in normalized for marker in forbidden_markers):
+            raise serializers.ValidationError(
+                "Provide a short technical description without traces or secrets."
+            )
+        return value
+
     class Meta:
         model = WhatsAppMessage
         fields = "__all__"
@@ -65,6 +89,7 @@ class WhatsAppMessageSerializer(serializers.ModelSerializer):
             "raw_json",
             "synced_at",
             "created_at",
+            "transcribed_at",
         )
         validators = []
         extra_kwargs = {
@@ -73,3 +98,24 @@ class WhatsAppMessageSerializer(serializers.ModelSerializer):
             "message_id": {"required": True},
             "timestamp": {"required": True},
         }
+
+
+class WhatsAppOwnerMessageSerializer(WhatsAppMessageSerializer):
+    class Meta:
+        model = WhatsAppMessage
+        fields = (
+            "id",
+            "group",
+            "group_display_name",
+            "sender_name",
+            "sender_id",
+            "timestamp",
+            "body",
+            "message_type",
+            "media_type",
+            "transcription",
+            "transcription_status",
+            "transcription_error",
+            "transcribed_at",
+        )
+        read_only_fields = fields

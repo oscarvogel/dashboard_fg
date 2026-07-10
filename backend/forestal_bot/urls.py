@@ -5,11 +5,17 @@ from forestal_bot.views import (
     WhatsAppGroupListCreateView,
     WhatsAppMessageCreateView,
     WhatsAppMessageRecentView,
+    WhatsAppOwnerMessageListView,
 )
 
 app_name = "forestal_bot"
 
 urlpatterns = [
+    path(
+        "whatsapp/owner/messages/",
+        WhatsAppOwnerMessageListView.as_view(),
+        name="whatsapp-owner-message-list",
+    ),
     path(
         "whatsapp/groups/",
         WhatsAppGroupListCreateView.as_view(),

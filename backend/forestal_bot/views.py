@@ -1,7 +1,9 @@
 from collections.abc import Mapping
 
 from django.db import IntegrityError, transaction
+from django.utils import timezone
 from rest_framework import serializers, status
+from rest_framework.permissions import IsAuthenticated
 from rest_framework.response import Response
 from rest_framework.views import APIView
 
@@ -11,7 +13,11 @@ from forestal_bot.models import (
     WhatsAppMessage,
 )
 from forestal_bot.permissions import OpenClawBearerPermission
-from forestal_bot.serializers import WhatsAppGroupSerializer, WhatsAppMessageSerializer
+from forestal_bot.serializers import (
+    WhatsAppGroupSerializer,
+    WhatsAppMessageSerializer,
+    WhatsAppOwnerMessageSerializer,
+)
 
 
 def resolve_message_group(validated_data):
@@ -27,6 +33,46 @@ def resolve_message_group(validated_data):
         group.name = incoming_name
         group.save(update_fields=["name", "updated_at"])
     return group
+
+
+def prepare_transcription_defaults(defaults):
+    if defaults.get("transcription_status") == "completed":
+        defaults["transcribed_at"] = timezone.now()
+        defaults["transcription_error"] = ""
+    return defaults
+
+
+def update_existing_transcription(message, validated_data):
+    if message.transcription_status == "completed" and message.transcription:
+        return
+
+    incoming_status = validated_data.get("transcription_status", "")
+    update_fields = []
+    if incoming_status in ("pending", "processing"):
+        message.transcription_status = incoming_status
+        update_fields.append("transcription_status")
+    elif incoming_status == "failed":
+        message.transcription_status = "failed"
+        message.transcription_error = validated_data.get("transcription_error", "")
+        message.transcribed_at = None
+        update_fields.extend(
+            ["transcription_status", "transcription_error", "transcribed_at"]
+        )
+    elif incoming_status == "completed":
+        message.transcription = validated_data["transcription"]
+        message.transcription_status = "completed"
+        message.transcription_error = ""
+        message.transcribed_at = timezone.now()
+        update_fields.extend(
+            [
+                "transcription",
+                "transcription_status",
+                "transcription_error",
+                "transcribed_at",
+            ]
+        )
+    if update_fields:
+        message.save(update_fields=update_fields)
 
 
 class WhatsAppMessageCreateView(APIView):
@@ -47,7 +93,9 @@ class WhatsAppMessageCreateView(APIView):
             field: validated_data.pop(field)
             for field in ("account_id", "group_jid", "message_id")
         }
-        defaults = {**validated_data, "raw_json": raw_json}
+        defaults = prepare_transcription_defaults(
+            {**validated_data, "raw_json": raw_json}
+        )
 
         try:
             with transaction.atomic():
@@ -59,6 +107,8 @@ class WhatsAppMessageCreateView(APIView):
                 if not created and message.group_id is None:
                     message.group = group
                     message.save(update_fields=["group"])
+                if not created:
+                    update_existing_transcription(message, validated_data)
         except IntegrityError:
             message = WhatsAppMessage.objects.get(**identity)
             created = False
@@ -146,3 +196,28 @@ class WhatsAppGroupDetailView(APIView):
         serializer.is_valid(raise_exception=True)
         serializer.save()
         return Response(serializer.data)
+
+
+class WhatsAppOwnerMessageListView(APIView):
+    permission_classes = [IsAuthenticated]
+
+    def get(self, request):
+        queryset = WhatsAppMessage.objects.select_related("group").order_by(
+            "-timestamp", "-created_at"
+        )
+        account_id = request.query_params.get("account_id")
+        if account_id:
+            queryset = queryset.filter(account_id=account_id)
+        limit_value = request.query_params.get("limit", "100")
+        try:
+            limit = int(limit_value)
+        except (TypeError, ValueError):
+            limit = 0
+        if limit <= 0:
+            raise serializers.ValidationError(
+                {"limit": ["A positive integer is required."]}
+            )
+        limit = min(limit, 500)
+        return Response(
+            WhatsAppOwnerMessageSerializer(queryset[:limit], many=True).data
+        )

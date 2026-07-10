@@ -1,4 +1,5 @@
 from django.test import override_settings
+from django.contrib.auth import get_user_model
 from django.urls import reverse
 from rest_framework import status
 from rest_framework.test import APITestCase
@@ -186,6 +187,191 @@ class WhatsAppMessageCreateAPITests(APITestCase):
 
         self.assertEqual(response.status_code, status.HTTP_201_CREATED)
         self.assertEqual(WhatsAppMessage.objects.get().body, "")
+
+    def test_audio_pending_then_completed_updates_only_transcription_fields(self):
+        headers = {"HTTP_AUTHORIZATION": "Bearer test-openclaw-token"}
+        pending_payload = {
+            **self.payload,
+            "body": "",
+            "message_type": "audio/ogg",
+            "media_type": "audio/ogg",
+            "media_path": "/local/audio.ogg",
+            "transcription_status": "pending",
+        }
+        first_response = self.client.post(self.url, pending_payload, format="json", **headers)
+        original = WhatsAppMessage.objects.get()
+        original_raw_json = original.raw_json
+        original_timestamp = original.timestamp
+
+        completed_response = self.client.post(
+            self.url,
+            {
+                **pending_payload,
+                "body": "contenido que no debe reemplazarse",
+                "transcription": "Texto transcripto localmente por Whisper.",
+                "transcription_status": "completed",
+                "transcription_error": "error anterior",
+            },
+            format="json",
+            **headers,
+        )
+
+        self.assertEqual(first_response.status_code, status.HTTP_201_CREATED)
+        self.assertEqual(completed_response.status_code, status.HTTP_200_OK)
+        self.assertFalse(completed_response.data["created"])
+        self.assertEqual(WhatsAppMessage.objects.count(), 1)
+        message = WhatsAppMessage.objects.get()
+        self.assertEqual(message.transcription, "Texto transcripto localmente por Whisper.")
+        self.assertEqual(message.transcription_status, "completed")
+        self.assertEqual(message.transcription_error, "")
+        self.assertIsNotNone(message.transcribed_at)
+        self.assertEqual(message.body, "")
+        self.assertEqual(message.raw_json, original_raw_json)
+        self.assertEqual(message.timestamp, original_timestamp)
+
+    def test_failed_update_is_bounded_and_does_not_replace_completed_transcription(self):
+        headers = {"HTTP_AUTHORIZATION": "Bearer test-openclaw-token"}
+        completed = {
+            **self.payload,
+            "transcription": "Transcripción definitiva",
+            "transcription_status": "completed",
+        }
+        self.client.post(self.url, completed, format="json", **headers)
+        response = self.client.post(
+            self.url,
+            {
+                **self.payload,
+                "transcription_status": "failed",
+                "transcription_error": "Fallo técnico acotado",
+            },
+            format="json",
+            **headers,
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        message = WhatsAppMessage.objects.get()
+        self.assertEqual(message.transcription, "Transcripción definitiva")
+        self.assertEqual(message.transcription_status, "completed")
+        self.assertEqual(message.transcription_error, "")
+
+    def test_failed_update_stores_error_before_completion(self):
+        headers = {"HTTP_AUTHORIZATION": "Bearer test-openclaw-token"}
+        self.client.post(
+            self.url,
+            {**self.payload, "transcription_status": "pending"},
+            format="json",
+            **headers,
+        )
+        response = self.client.post(
+            self.url,
+            {
+                **self.payload,
+                "transcription_status": "failed",
+                "transcription_error": "Formato no soportado",
+            },
+            format="json",
+            **headers,
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        message = WhatsAppMessage.objects.get()
+        self.assertEqual(message.transcription_status, "failed")
+        self.assertEqual(message.transcription_error, "Formato no soportado")
+        self.assertIsNone(message.transcribed_at)
+
+    def test_second_completed_does_not_replace_existing_transcription(self):
+        headers = {"HTTP_AUTHORIZATION": "Bearer test-openclaw-token"}
+        self.client.post(
+            self.url,
+            {
+                **self.payload,
+                "transcription": "Primera transcripción",
+                "transcription_status": "completed",
+            },
+            format="json",
+            **headers,
+        )
+        self.client.post(
+            self.url,
+            {
+                **self.payload,
+                "transcription": "Intento de reemplazo",
+                "transcription_status": "completed",
+            },
+            format="json",
+            **headers,
+        )
+
+        self.assertEqual(WhatsAppMessage.objects.get().transcription, "Primera transcripción")
+
+    def test_invalid_status_and_oversized_fields_return_400(self):
+        headers = {"HTTP_AUTHORIZATION": "Bearer test-openclaw-token"}
+        invalid_status = self.client.post(
+            self.url,
+            {**self.payload, "transcription_status": "unknown"},
+            format="json",
+            **headers,
+        )
+        oversized_transcription = self.client.post(
+            self.url,
+            {**self.payload, "message_id": "message-2", "transcription": "x" * 20001},
+            format="json",
+            **headers,
+        )
+        oversized_error = self.client.post(
+            self.url,
+            {**self.payload, "message_id": "message-3", "transcription_error": "x" * 1001},
+            format="json",
+            **headers,
+        )
+
+        self.assertEqual(invalid_status.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertEqual(oversized_transcription.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertEqual(oversized_error.status_code, status.HTTP_400_BAD_REQUEST)
+
+    def test_transcription_error_rejects_tracebacks_and_secret_markers(self):
+        headers = {"HTTP_AUTHORIZATION": "Bearer test-openclaw-token"}
+        traceback_response = self.client.post(
+            self.url,
+            {
+                **self.payload,
+                "transcription_status": "failed",
+                "transcription_error": "Traceback (most recent call last): decoder failed",
+            },
+            format="json",
+            **headers,
+        )
+        secret_response = self.client.post(
+            self.url,
+            {
+                **self.payload,
+                "message_id": "message-secret",
+                "transcription_status": "failed",
+                "transcription_error": "OPENCLAW_INGEST_TOKEN was rejected",
+            },
+            format="json",
+            **headers,
+        )
+
+        self.assertEqual(traceback_response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertEqual(secret_response.status_code, status.HTTP_400_BAD_REQUEST)
+
+    def test_old_payload_returns_new_transcription_fields(self):
+        response = self.client.post(
+            self.url,
+            self.payload,
+            format="json",
+            HTTP_AUTHORIZATION="Bearer test-openclaw-token",
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
+        for field in (
+            "transcription",
+            "transcription_status",
+            "transcription_error",
+            "transcribed_at",
+        ):
+            self.assertIn(field, response.data["message"])
 
     def test_duplicate_post_returns_existing_message_without_overwriting_it(self):
         headers = {"HTTP_AUTHORIZATION": "Bearer test-openclaw-token"}
@@ -486,3 +672,49 @@ class WhatsAppGroupAPITests(APITestCase):
         response = self.client.post(self.url, payload, format="json", **self.headers)
 
         self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+
+
+class WhatsAppOwnerMessageAPITests(APITestCase):
+    def setUp(self):
+        self.url = reverse("forestal_bot:whatsapp-owner-message-list")
+        self.user = get_user_model().objects.create_user(
+            username="owner-test",
+            password="not-used",
+        )
+        self.group = WhatsAppGroup.objects.create(
+            account_id="default",
+            jid="group-a@g.us",
+            name="Grupo de prueba",
+        )
+        self.message = WhatsAppMessage.objects.create(
+            account_id="default",
+            group_jid=self.group.jid,
+            group=self.group,
+            message_id="audio-1",
+            timestamp="2026-07-10T20:00:00Z",
+            sender_name="Operador Uno",
+            message_type="audio/ogg",
+            media_type="audio/ogg",
+            media_path="/private/mac/audio.ogg",
+            transcription="Audio transcripto",
+            transcription_status="completed",
+        )
+
+    def test_owner_messages_requires_jwt_authentication(self):
+        response = self.client.get(self.url)
+
+        self.assertIn(response.status_code, (status.HTTP_401_UNAUTHORIZED, status.HTTP_403_FORBIDDEN))
+
+    def test_owner_messages_returns_friendly_fields_without_media_path(self):
+        self.client.force_authenticate(self.user)
+
+        response = self.client.get(self.url)
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(len(response.data), 1)
+        row = response.data[0]
+        self.assertEqual(row["group_display_name"], "Grupo de prueba")
+        self.assertEqual(row["sender_name"], "Operador Uno")
+        self.assertEqual(row["transcription_status"], "completed")
+        self.assertNotIn("media_path", row)
+        self.assertNotIn("group_jid", row)
