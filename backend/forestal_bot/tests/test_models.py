@@ -2,7 +2,40 @@ from django.db import IntegrityError, transaction
 from django.test import TestCase
 from django.utils import timezone
 
-from forestal_bot.models import WhatsAppMessage
+from forestal_bot.models import WhatsAppGroup, WhatsAppMessage
+
+
+class WhatsAppGroupTests(TestCase):
+    def test_group_creation_and_indexes(self):
+        group = WhatsAppGroup.objects.create(
+            account_id="account-1",
+            jid="group-a@g.us",
+            name="Operaciones Forestales",
+        )
+
+        self.assertTrue(group.active)
+        indexes = {index.name: list(index.fields) for index in group._meta.indexes}
+        self.assertEqual(indexes["forestal_wag_jid_idx"], ["jid"])
+        self.assertEqual(
+            indexes["forestal_wag_acct_active_idx"],
+            ["account_id", "active"],
+        )
+        self.assertEqual(indexes["forestal_wag_name_idx"], ["name"])
+
+    def test_account_and_jid_are_unique_together(self):
+        WhatsAppGroup.objects.create(
+            account_id="account-1",
+            jid="group-a@g.us",
+            name="Grupo A",
+        )
+
+        with self.assertRaises(IntegrityError):
+            with transaction.atomic():
+                WhatsAppGroup.objects.create(
+                    account_id="account-1",
+                    jid="group-a@g.us",
+                    name="Duplicado",
+                )
 
 
 class WhatsAppMessageTests(TestCase):

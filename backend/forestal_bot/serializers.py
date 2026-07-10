@@ -2,7 +2,7 @@ from datetime import datetime
 
 from rest_framework import serializers
 
-from forestal_bot.models import WhatsAppMessage
+from forestal_bot.models import WhatsAppGroup, WhatsAppMessage
 
 
 class ExplicitTimezoneDateTimeField(serializers.DateTimeField):
@@ -23,13 +23,49 @@ class ExplicitTimezoneDateTimeField(serializers.DateTimeField):
         return parsed_value
 
 
+class WhatsAppGroupSummarySerializer(serializers.ModelSerializer):
+    class Meta:
+        model = WhatsAppGroup
+        fields = ("id", "jid", "name")
+
+
+class WhatsAppGroupSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = WhatsAppGroup
+        fields = (
+            "id",
+            "account_id",
+            "jid",
+            "name",
+            "description",
+            "active",
+            "created_at",
+            "updated_at",
+        )
+        read_only_fields = ("id", "created_at", "updated_at")
+
+
 class WhatsAppMessageSerializer(serializers.ModelSerializer):
     timestamp = ExplicitTimezoneDateTimeField(required=True)
+    group = WhatsAppGroupSummarySerializer(read_only=True)
+    group_display_name = serializers.SerializerMethodField()
+
+    def get_group_display_name(self, obj):
+        if obj.group_id and obj.group and obj.group.name:
+            return obj.group.name
+        return obj.group_name or obj.group_jid
 
     class Meta:
         model = WhatsAppMessage
         fields = "__all__"
-        read_only_fields = ("id", "raw_json", "synced_at", "created_at")
+        read_only_fields = (
+            "id",
+            "group",
+            "group_display_name",
+            "raw_json",
+            "synced_at",
+            "created_at",
+        )
         validators = []
         extra_kwargs = {
             "account_id": {"required": True},
