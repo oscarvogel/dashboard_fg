@@ -36,6 +36,7 @@ from .combustible_services import (
 )
 from .facturacion_services import calcular_facturacion_movil, parse_facturacion_params
 from .indicadores_services import calcular_movil_operativo, parse_movil_operativo_params
+from .ranking_services import calcular_ranking_moviles, parse_ranking_params
 from django.db.models import Sum, F
 from datetime import datetime
 from datetime import timedelta, date
@@ -111,6 +112,15 @@ class MovilOperativoView(APIView):
                 status=status.HTTP_404_NOT_FOUND,
             )
         return Response(result)
+
+
+class MovilesRankingView(APIView):
+    permission_classes = [IsAuthenticated]
+    http_method_names = ["get", "head", "options"]
+
+    def get(self, request):
+        params = parse_ranking_params(request.query_params)
+        return Response(calcular_ranking_moviles(**params))
 
 class ProduccionOperadorView(APIView):
 

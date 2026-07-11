@@ -3,7 +3,7 @@ from .views import (
     CargasCombustibleView, CombustibleEquipoLHView, CombustibleEquipoVsHistoricoView,
     CombustibleSinProduccionView, EmpleadoViewSet, EquipoAliasesPatchView, EquiposListSearchView, EquiposPorUNView,
     FacturacionMovilView, FiltrosCombustibleView, FiltrosDinamicosView, HorasNoOperativasDashboardView, LoginEmpleadoView,
-    MovilOperativoView, ProduccionDashboardView, ProduccionEjecutivaView, ProduccionOperadorView, RegistrosEmpleadoViewSet,
+    MovilOperativoView, MovilesRankingView, ProduccionDashboardView, ProduccionEjecutivaView, ProduccionOperadorView, RegistrosEmpleadoViewSet,
     ResumenOperacionalView, UnidadesNegocioActivasView, maquinas_por_frente_operador, resumen_maquinas_componentes,
 )
 from rest_framework.routers import DefaultRouter
@@ -30,6 +30,7 @@ urlpatterns = [
     path('combustible-sin-produccion/', CombustibleSinProduccionView.as_view(), name='combustible-sin-produccion'),
     path('indicadores/facturacion-movil/', FacturacionMovilView.as_view(), name='facturacion-movil'),
     path('indicadores/movil-operativo/', MovilOperativoView.as_view(), name='movil-operativo'),
+    path('indicadores/moviles-ranking/', MovilesRankingView.as_view(), name='moviles-ranking'),
     path('horas-no-operativas/', HorasNoOperativasDashboardView.as_view(), name='horas-no-operativas'),
     path('maquinas-frente-operador/', maquinas_por_frente_operador, name='maquinas_frente_operador'),
     path('resumen-maquinas-componentes/', resumen_maquinas_componentes, name='resumen_maquinas_componentes'),
