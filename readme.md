@@ -25,7 +25,7 @@ Proyecto fullstack para gestión y visualización de producción forestal.
 	- `GET /api/produccion-dashboard/` → datos para dashboard (paginado + `registros_grafico`)
 	- `GET /api/filtros/` → valores para filtros dinámicos (operaciones, unidades, equipos, operadores)
 	- `GET /api/cargas-combustible/`, `/api/filtros-combustible/`, etc.
-	- `GET /api/combustible-equipo-lh/`, `/api/combustible-equipo-vs-historico/` y `/api/combustible-sin-produccion/` → consultas analíticas de combustible autenticadas. Ver [documentación detallada](docs/COMBUSTIBLE_CONSULTAS_API.md).
+	- `GET /api/combustible-equipo-lh/`, `/api/combustible-equipo-vs-historico/` y `/api/combustible-sin-produccion/` → consultas analíticas de combustible autenticadas. Usan `start_date`/`end_date` como parámetros recomendados y conservan `inicio`/`fin` como aliases retrocompatibles. Ver [documentación detallada](docs/COMBUSTIBLE_CONSULTAS_API.md).
 - Comandos custom: `send_kpi_report`, `reporte_diario`, `migrate_empleados`, entre otros.
 
 ## Requisitos
