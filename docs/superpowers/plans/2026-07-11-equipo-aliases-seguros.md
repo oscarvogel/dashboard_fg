@@ -100,7 +100,7 @@ git commit -m "feat(api): centralize equipment alias normalization"
 
 - [ ] **Step 1: Escribir tests RED del modelo**
 
-Agregar tests que creen `EquipoAlias`, verifiquen FK a `Equipo`, choices, timestamps, metadata, unique por equipo+normalizado y unique condicional global activo. Probar que el mismo alias normalizado inactivo puede existir históricamente en equipos distintos pero no puede haber dos activos.
+Agregar tests que creen `EquipoAlias`, verifiquen FK a `Equipo`, choices, timestamps, metadata, unique por equipo+normalizado y la clave global `alias_activo_key`. Probar que el mismo alias normalizado inactivo puede existir históricamente en equipos distintos con `alias_activo_key=NULL`, pero no puede haber dos activos con la misma clave.
 
 - [ ] **Step 2: Ejecutar RED**
 
@@ -114,7 +114,7 @@ Expected: FAIL por import inexistente.
 
 - [ ] **Step 3: Implementar modelo y migración**
 
-Definir `EquipoAlias` con `on_delete=PROTECT`, `related_name='alias_records'`, campos de la especificación, `UniqueConstraint(fields=['equipo', 'alias_normalizado'])`, `UniqueConstraint(fields=['alias_normalizado'], condition=Q(activo=True))` e índice explícito. Registrar un admin read-oriented con filtros por activo/origen y búsqueda por alias/equipo.
+Definir `EquipoAlias` con `on_delete=PROTECT`, `related_name='alias_records'`, campos de la especificación, `alias_activo_key` nullable y único, `UniqueConstraint(fields=['equipo', 'alias_normalizado'])` e índice explícito sobre `alias_normalizado`. El servicio asigna la clave normalizada cuando activa y `NULL` cuando desactiva; esto garantiza unicidad global en MySQL, que no soporta índices únicos parciales. Registrar un admin read-oriented con filtros por activo/origen y búsqueda por alias/equipo.
 
 Generar migración:
 

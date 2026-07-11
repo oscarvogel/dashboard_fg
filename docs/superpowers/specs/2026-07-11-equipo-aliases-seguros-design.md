@@ -27,6 +27,7 @@ Campos:
 - `equipo`: FK a `Equipo.id`/`moviles.idmovil`, con borrado protegido.
 - `alias_display`: texto legible confirmado, máximo 120 caracteres.
 - `alias_normalizado`: clave normalizada, máximo 120 caracteres.
+- `alias_activo_key`: clave técnica nullable; replica `alias_normalizado` cuando el registro está activo y usa `NULL` cuando está inactivo.
 - `activo`: desactivación lógica; nunca se borra físicamente desde la API.
 - `origen`: `manual`, `openclaw`, `importacion` o `sistema`.
 - `confirmado_por`: FK al usuario autenticado; nunca se acepta desde el payload.
@@ -38,11 +39,11 @@ Restricciones e índices:
 
 - unicidad por `equipo + alias_normalizado` para conservar historial idempotente;
 - índice por `alias_normalizado`;
-- unicidad condicional global de `alias_normalizado` cuando `activo=true`;
+- unicidad global de `alias_activo_key`; esta forma es compatible con MySQL y permite múltiples `NULL` para conservar historial inactivo;
 - si un alias inactivo se confirma nuevamente para el mismo equipo, se reactiva y actualiza su auditoría;
 - si un alias activo pertenece a otro equipo, se responde HTTP 409 sin cambios.
 
-La restricción de base de datos complementa, pero no reemplaza, la validación transaccional. Un `IntegrityError` por concurrencia se traduce a conflicto 409.
+El servicio mantiene `alias_activo_key` junto con `activo`. La restricción de base de datos complementa, pero no reemplaza, la validación transaccional. Un `IntegrityError` por concurrencia se traduce a conflicto 409.
 
 ## Normalización centralizada
 
