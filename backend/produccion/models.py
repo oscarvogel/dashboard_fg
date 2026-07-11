@@ -50,10 +50,17 @@ class RegistroProduccion(models.Model):
     id = models.AutoField(primary_key=True)
     UN = models.CharField(max_length=50)
     operacion = models.CharField(max_length=50)
+    # Texto legado: se conserva por compatibilidad, pero no identifica personas.
     operador = models.CharField(max_length=50)
     fecha = models.DateField(null=True, blank=True)
     equipo = models.CharField(max_length=50)
-    operador = models.CharField(max_length=50)
+    cod_operador = models.ForeignKey(
+        'Empleado',
+        on_delete=models.DO_NOTHING,
+        db_column='cod_operador',
+        db_constraint=False,
+        default=1,
+    )
     hr_inicio = models.DecimalField(max_digits=12, decimal_places=2, default=0.00)
     hr_fin = models.DecimalField(max_digits=12, decimal_places=2, default=0.00)
     m3 = models.IntegerField(default=0)

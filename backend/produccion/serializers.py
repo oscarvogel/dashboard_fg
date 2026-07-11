@@ -58,6 +58,9 @@ class RegistroProduccionSerializer(serializers.ModelSerializer):
     unidad_negocio_detalle = serializers.CharField(source='cod_un.nombre', read_only=True)
     origen = serializers.SerializerMethodField()
     destino = serializers.SerializerMethodField()
+    operador_id = serializers.IntegerField(source='cod_operador_id', read_only=True)
+    operador_nombre = serializers.SerializerMethodField()
+    operador_texto_legacy = serializers.CharField(source='operador', read_only=True)
 
     class Meta:
         model = RegistroProduccion
@@ -66,6 +69,9 @@ class RegistroProduccionSerializer(serializers.ModelSerializer):
             'UN',
             'operacion',
             'operador',
+            'operador_id',
+            'operador_nombre',
+            'operador_texto_legacy',
             'fecha',
             'equipo',
             'hr_inicio',
@@ -106,6 +112,14 @@ class RegistroProduccionSerializer(serializers.ModelSerializer):
         try:
             return obj.origen_camion.destino
         except Exception:
+            return None
+
+    def get_operador_nombre(self, obj):
+        if not getattr(obj, 'cod_operador_id', None):
+            return None
+        try:
+            return obj.cod_operador.nombre
+        except Empleado.DoesNotExist:
             return None
         
 class CargaCombustibleSerializer(serializers.ModelSerializer):
