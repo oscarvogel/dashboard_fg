@@ -3,7 +3,7 @@ from decimal import Decimal
 
 from django.test import SimpleTestCase
 
-from .facturacion_services import FacturacionParamsSerializer, _calculate_row
+from .facturacion_services import FacturacionParamsSerializer, _calculate_row, _select_monthly
 
 
 class FacturacionParamsTests(SimpleTestCase):
@@ -82,3 +82,34 @@ class FacturacionCalculationTests(SimpleTestCase):
         self.assertEqual(result["fuente_tarifa"], "tablero_produccion_tarifa")
         self.assertEqual(result["componentes"]["tarifa_base"], "9815.3200")
         self.assertEqual(result["facturacion_total"], "12274057.66")
+
+    def test_unique_monthly_scope_is_fallback_for_placeholder_equipment(self):
+        monthly = [{
+            "periodo": "202607", "unidad_negocio_id": 111,
+            "tipo_operacion": "TRANSPORTE", "equipo_id": 477,
+            "unidad_tarifa": "TN", "tarifa": Decimal("9815.3200"),
+        }]
+        row = {
+            "fecha": date(2026, 7, 10), "cod_un_id": 111,
+            "operacion": "TRANSPORTE", "cod_equipo_id": 1652,
+        }
+
+        self.assertEqual(_select_monthly(monthly, row), monthly[0])
+
+    def test_ambiguous_monthly_scope_does_not_choose_another_equipment(self):
+        monthly = [
+            {
+                "periodo": "202607", "unidad_negocio_id": 111,
+                "tipo_operacion": "TRANSPORTE", "equipo_id": 477,
+            },
+            {
+                "periodo": "202607", "unidad_negocio_id": 111,
+                "tipo_operacion": "TRANSPORTE", "equipo_id": 478,
+            },
+        ]
+        row = {
+            "fecha": date(2026, 7, 10), "cod_un_id": 111,
+            "operacion": "TRANSPORTE", "cod_equipo_id": 1652,
+        }
+
+        self.assertIsNone(_select_monthly(monthly, row))

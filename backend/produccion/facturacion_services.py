@@ -70,18 +70,20 @@ def _period(value: date):
 def _select_monthly(monthly_rows, row):
     exact = None
     fallback = None
+    scoped = []
     for item in monthly_rows:
         if (
             item["periodo"] == _period(row["fecha"])
             and item["unidad_negocio_id"] == row["cod_un_id"]
             and (item["tipo_operacion"] or "").strip() == (row["operacion"] or "").strip()
         ):
+            scoped.append(item)
             if item["equipo_id"] == row["cod_equipo_id"]:
                 exact = item
                 break
             if item["equipo_id"] is None and fallback is None:
                 fallback = item
-    return exact or fallback
+    return exact or fallback or (scoped[0] if len(scoped) == 1 else None)
 
 
 def _calculate_row(row, monthly, unit_sum, simulation_rate=None, simulation_currency=None):
