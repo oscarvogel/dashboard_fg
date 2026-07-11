@@ -78,7 +78,7 @@ class RegistroProduccion(models.Model):
     combustible = models.DecimalField(max_digits=12, decimal_places=2, default=0.00)
     aceite_cadena = models.DecimalField(max_digits=12, decimal_places=2, default=0.00)
     aceite_hidraulico = models.DecimalField(max_digits=12, decimal_places=2, default=0.00)
-    tarifa = models.DecimalField(max_digits=12, decimal_places=2, default=0.00, null=True, blank=True)
+    tarifa = models.DecimalField(max_digits=20, decimal_places=4, default=0.00, null=True, blank=True)
     predio = models.CharField(max_length=50, null=True, blank=True)
     stock_abc = models.DecimalField(max_digits=12, decimal_places=2, default=0.00)
     acta = models.CharField(max_length=50, null=True, blank=True)

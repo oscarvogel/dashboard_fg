@@ -30,7 +30,7 @@ class FacturacionCalculationTests(SimpleTestCase):
     row = {
         "id": 7, "fecha": date(2026, 7, 1), "cod_equipo_id": 8, "cod_un_id": 9,
         "operacion": "PROCESO", "produccion": Decimal("1250.50"),
-        "unidad_produccion": "TN", "origen_camion__precio": None,
+        "unidad_produccion": "TN", "tarifa": None, "origen_camion__precio": None,
     }
 
     def test_calculated_uses_decimal_formula(self):
@@ -68,3 +68,17 @@ class FacturacionCalculationTests(SimpleTestCase):
         result = _calculate_row(self.row, None, Decimal("0"))
         self.assertEqual(result["estado_calculo"], "sin_tarifa")
         self.assertIn("tarifa_base", result["faltantes"])
+
+    def test_uses_persisted_valuation_tariff_before_other_sources(self):
+        row = {**self.row, "tarifa": Decimal("9815.3200")}
+        monthly = {
+            "coeficiente": Decimal("1"), "cotizacion": Decimal("1"),
+            "tarifa": Decimal("8500.0000"), "unidad_tarifa": "TN",
+        }
+
+        result = _calculate_row(row, monthly, Decimal("9000.0000"))
+
+        self.assertEqual(result["estado_calculo"], "calculado")
+        self.assertEqual(result["fuente_tarifa"], "tablero_produccion_tarifa")
+        self.assertEqual(result["componentes"]["tarifa_base"], "9815.3200")
+        self.assertEqual(result["facturacion_total"], "12274057.66")

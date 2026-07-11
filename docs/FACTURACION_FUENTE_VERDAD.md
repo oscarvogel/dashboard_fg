@@ -20,8 +20,9 @@ Para cada registro de `tablero_produccion` dentro del rango seleccionado:
 2. busca `produccion_mensual` por período, `cod_un`, operación y equipo, con
    fallback sin equipo;
 3. obtiene `coeficiente`, `cotizacion`, `unidad_tarifa` y tarifa mensual;
-4. resuelve la tarifa base priorizando la suma de `unitario` de la misma UN,
-   operación y rango; luego la tarifa mensual; finalmente `origen.precio`;
+4. resuelve la tarifa base priorizando la tarifa valorizada y persistida en
+   `tablero_produccion.tarifa`; luego la suma de `unitario` de la misma UN,
+   operación y rango, la tarifa mensual y finalmente `origen.precio`;
 5. cuando `cotizacion != 1`, usa la cotización de dólar ingresada manualmente
    al ejecutar el proceso;
 6. calcula:
@@ -46,7 +47,8 @@ unitario a 4, y el total del movimiento a 2.
 | Operación | `tablero_produccion` | `operacion` |
 | Cantidad base | `tablero_produccion` | `produccion` |
 | Unidad producida | `tablero_produccion` | `unidad_produccion` |
-| Tarifa por componentes | `tablero_produccion` | suma de `unitario` por UN, operación y rango |
+| Tarifa valorizada | `tablero_produccion` | `tarifa`, persistida por el proceso de valorización |
+| Tarifa por componentes | `tablero_produccion` | suma de `unitario` por UN, operación y rango cuando el movimiento aún no fue valorizado |
 | Tarifa mensual | `produccion_mensual` | `tarifa`, fallback cuando no hay unitarios |
 | Coeficiente | `produccion_mensual` | `coeficiente` |
 | Unidad facturable | `produccion_mensual` | `unidad_tarifa` |

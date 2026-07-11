@@ -87,8 +87,11 @@ def _select_monthly(monthly_rows, row):
 def _calculate_row(row, monthly, unit_sum, simulation_rate=None, simulation_currency=None):
     production = _d(row["produccion"])
     coefficient = ONE
-    tariff = _d(unit_sum)
-    tariff_source = "unitario_sum" if tariff > ZERO else None
+    persisted_tariff = _d(row.get("tarifa"))
+    tariff = persisted_tariff if persisted_tariff > ZERO else _d(unit_sum)
+    tariff_source = "tablero_produccion_tarifa" if persisted_tariff > ZERO else (
+        "unitario_sum" if tariff > ZERO else None
+    )
     production_unit = (row.get("unidad_produccion") or "").strip() or None
     billing_unit = None
     persisted_quote = None
@@ -188,7 +191,7 @@ def calcular_facturacion_movil(
     rows = list(
         activity.values(
             "id", "fecha", "cod_equipo_id", "cod_un_id", "operacion", "produccion",
-            "unidad_produccion", "origen_camion__precio",
+            "unidad_produccion", "tarifa", "origen_camion__precio",
         ).order_by("fecha", "id")
     )
     if not rows:
