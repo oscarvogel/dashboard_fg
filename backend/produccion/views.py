@@ -35,6 +35,7 @@ from .combustible_services import (
     parse_consulta_params,
 )
 from .facturacion_services import calcular_facturacion_movil, parse_facturacion_params
+from .indicadores_services import calcular_movil_operativo, parse_movil_operativo_params
 from django.db.models import Sum, F
 from datetime import datetime
 from datetime import timedelta, date
@@ -88,6 +89,22 @@ class FacturacionMovilView(APIView):
         params = parse_facturacion_params(request.query_params)
         try:
             result = calcular_facturacion_movil(**params)
+        except Equipo.DoesNotExist:
+            return Response(
+                {"movil_id": ["No existe un móvil con el identificador indicado."]},
+                status=status.HTTP_404_NOT_FOUND,
+            )
+        return Response(result)
+
+
+class MovilOperativoView(APIView):
+    permission_classes = [IsAuthenticated]
+    http_method_names = ["get", "head", "options"]
+
+    def get(self, request):
+        params = parse_movil_operativo_params(request.query_params)
+        try:
+            result = calcular_movil_operativo(**params)
         except Equipo.DoesNotExist:
             return Response(
                 {"movil_id": ["No existe un móvil con el identificador indicado."]},
