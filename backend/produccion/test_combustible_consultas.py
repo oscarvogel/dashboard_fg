@@ -282,6 +282,48 @@ class CombustibleConsultasAPITests(TestCase):
         self.assertEqual(len(response.json()["results"]), 1)
         self.assertEqual(response.json()["results"][0]["equipo_id"], self.equipo.id)
 
+    def test_sin_produccion_no_acusa_cuando_produccion_esta_en_otra_un(self):
+        self.carga(self.equipo, date(2026, 7, 1), "100")
+        self.produccion(self.equipo, date(2026, 7, 1), "0", "8", unidad=self.otra_un)
+
+        response = self.client.get(
+            reverse("combustible-sin-produccion"),
+            self.params(un_id=self.un.id),
+        )
+        self.assertEqual(len(response.json()["results"]), 0)
+
+    def test_sin_produccion_misma_un_carga_y_produccion_distinta_fecha_si_aparece(self):
+        self.carga(self.equipo, date(2026, 7, 1), "100")
+        self.produccion(self.equipo, date(2026, 7, 2), "0", "8", unidad=self.otra_un)
+
+        response = self.client.get(
+            reverse("combustible-sin-produccion"),
+            self.params(un_id=self.un.id),
+        )
+        self.assertEqual(len(response.json()["results"]), 1)
+
+    def test_sin_produccion_otro_equipo_misma_fecha_si_aparece(self):
+        self.carga(self.equipo, date(2026, 7, 1), "100")
+        self.produccion(self.otro_equipo, date(2026, 7, 1), "0", "8")
+
+        response = self.client.get(
+            reverse("combustible-sin-produccion"),
+            self.params(un_id=self.un.id),
+        )
+        self.assertEqual(len(response.json()["results"]), 1)
+
+    def test_sin_produccion_expone_un_real_de_carga(self):
+        self.carga(self.equipo, date(2026, 7, 1), "100", unidad=self.un)
+        self.carga(self.equipo, date(2026, 7, 1), "50", unidad=self.otra_un)
+        self.produccion(self.equipo, date(2026, 7, 2), "0", "8")
+
+        response = self.client.get(reverse("combustible-sin-produccion"), self.params())
+        result = response.json()["results"][0]
+        self.assertIn("unidades_negocio", result)
+        self.assertIsInstance(result["unidades_negocio"], list)
+        self.assertIn("FULL TREE", result["unidades_negocio"])
+        self.assertIn("BIOMASA", result["unidades_negocio"])
+
     def test_sin_produccion_reporta_fk_huerfana_separada_de_id_nulo(self):
         carga = self.carga(self.equipo, date(2026, 7, 1), "100")
         connection.disable_constraint_checking()
@@ -308,7 +350,7 @@ class CombustibleConsultasAPITests(TestCase):
         for name, maximum in (
             ("combustible-equipo-lh", 10),
             ("combustible-equipo-vs-historico", 18),
-            ("combustible-sin-produccion", 10),
+            ("combustible-sin-produccion", 11),
         ):
             with self.subTest(name=name), CaptureQueriesContext(connection) as captured:
                 response = self.client.get(reverse(name), self.params())

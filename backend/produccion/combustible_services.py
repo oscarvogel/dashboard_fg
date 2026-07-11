@@ -258,7 +258,15 @@ def combustible_equipo_vs_historico(inicio, fin, meses_atras=6, un_id=None, movi
 
 
 def combustible_sin_produccion(inicio, fin, un_id=None, movil_id=None):
-    fuel, production = _base_querysets(inicio, fin, un_id, movil_id)
+    fuel = CargaCombustible.objects.filter(fecha__range=(inicio, fin), tipo_mov="E")
+    production = RegistroProduccion.objects.filter(fecha__range=(inicio, fin))
+
+    if un_id:
+        fuel = fuel.filter(unidad_negocio_id=un_id)
+    if movil_id:
+        fuel = fuel.filter(equipo_id=movil_id)
+        production = production.filter(cod_equipo_id=movil_id)
+
     grouped_loads = list(
         fuel.values("fecha", "equipo_id")
         .annotate(litros=Sum("litros"), cantidad_cargas=Count("id"))
@@ -270,6 +278,9 @@ def combustible_sin_produccion(inicio, fin, un_id=None, movil_id=None):
         item.id: item
         for item in Equipo.objects.filter(id__in=equipment_ids).select_related("unidad_negocio")
     }
+
+    fuel_un_map = _grupos_un_por_carga(fuel)
+
     results = []
     unidentified = 0
     orphaned = 0
@@ -284,12 +295,13 @@ def combustible_sin_produccion(inicio, fin, un_id=None, movil_id=None):
         if (row["fecha"], equipment_id) in production_keys:
             continue
         obj = equipment[equipment_id]
+        key = (row["fecha"], equipment_id)
         results.append(
             {
                 "fecha": row["fecha"].isoformat(),
                 "equipo_id": equipment_id,
                 "equipo": obj.detalle or obj.patente or str(equipment_id),
-                "unidad_negocio": obj.unidad_negocio.nombre if obj.unidad_negocio else None,
+                "unidades_negocio": fuel_un_map.get(key, []),
                 "litros_egreso": _number(row["litros"]),
                 "cantidad_cargas": row["cantidad_cargas"],
                 "motivo": (
@@ -308,3 +320,20 @@ def combustible_sin_produccion(inicio, fin, un_id=None, movil_id=None):
             "comparacion_fecha": "DateField local America/Argentina/Buenos_Aires",
         },
     }
+
+
+def _grupos_un_por_carga(fuel_queryset):
+    un_rows = list(
+        fuel_queryset.values("fecha", "equipo_id", "unidad_negocio__nombre")
+        .distinct()
+        .order_by()
+    )
+    result = {}
+    for row in un_rows:
+        key = (row["fecha"], row["equipo_id"])
+        name = row["unidad_negocio__nombre"]
+        if key not in result:
+            result[key] = []
+        if name:
+            result[key].append(name)
+    return result
