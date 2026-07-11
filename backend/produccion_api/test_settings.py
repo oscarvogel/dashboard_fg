@@ -1,5 +1,7 @@
 from .settings import *  # noqa: F403
 
+MANAGE_LEGACY_TEST_TABLES = True
+
 
 DATABASES = {
     "default": {

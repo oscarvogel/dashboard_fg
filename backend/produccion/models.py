@@ -106,7 +106,8 @@ class RegistroProduccion(models.Model):
 
     class Meta:
         db_table = 'tablero_produccion'
-        managed = False
+        # Legacy in real environments; SQLite tests create an ephemeral copy.
+        managed = getattr(settings, "MANAGE_LEGACY_TEST_TABLES", False)
 
 class Equipo(models.Model):
 
