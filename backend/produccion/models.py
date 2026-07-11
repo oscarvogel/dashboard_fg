@@ -66,6 +66,7 @@ class RegistroProduccion(models.Model):
     m3 = models.IntegerField(default=0)
     tn_despachadas = models.DecimalField(max_digits=12, decimal_places=2, default=0.00)
     produccion = models.DecimalField(max_digits=12, decimal_places=2, default=0.00)
+    unitario = models.DecimalField(max_digits=12, decimal_places=2, default=0.00)
     unidad_produccion = models.CharField(max_length=50, null=True, blank=True)
     hrs_no_operativas = models.DecimalField(max_digits=12, decimal_places=2, default=0.00, db_column='hrs_no_op')
     motivo_no_op = models.CharField(max_length=150, null=True, blank=True)
@@ -103,6 +104,7 @@ class RegistroProduccion(models.Model):
 
     class Meta:
         db_table = 'tablero_produccion'
+        managed = False
 
 class Equipo(models.Model):
 
@@ -187,8 +189,11 @@ class ProduccionMensual(models.Model):
     cantidad_equipo = models.IntegerField(default=0)
     unidad_negocio = models.ForeignKey(UnidadNegocio, on_delete=models.CASCADE, db_column='un', null=True, blank=True)
     unidad_produccion = models.CharField(max_length=50, null=True, blank=True)
+    unidad_tarifa = models.CharField(max_length=50, null=True, blank=True)
     equipo = models.ForeignKey(Equipo, on_delete=models.CASCADE, null=True, blank=True)
     tarifa = models.DecimalField(max_digits=12, decimal_places=2, default=0.00)
+    coeficiente = models.DecimalField(max_digits=20, decimal_places=6, null=True, blank=True)
+    cotizacion = models.DecimalField(max_digits=20, decimal_places=6, null=True, blank=True)
 
     class Meta:
         db_table = 'produccion_mensual'        
@@ -205,4 +210,5 @@ class Moneda(models.Model):
         return self.descripcion
 
     class Meta:
-        db_table = 'moneda'
+        db_table = 'monedas'
+        managed = False
