@@ -33,6 +33,7 @@ from .equipo_aliases import (
     IsEquipoAliasAdmin,
     confirm_equipo_alias,
     deactivate_equipo_alias,
+    effective_equipo_aliases,
     normalize_alias,
     score_equipo_match,
 )
@@ -1558,15 +1559,16 @@ class EquiposListSearchView(APIView):
         equipos = Equipo.objects.prefetch_related(
             Prefetch(
                 'alias_records',
-                queryset=EquipoAlias.objects.filter(activo=True).order_by(
-                    'alias_display', 'id'
-                ),
-                to_attr='active_alias_records',
+                queryset=EquipoAlias.objects.order_by('alias_display', 'id'),
+                to_attr='prefetched_alias_records',
             )
         )
         ranked = []
         for equipo in equipos:
-            aliases = [record.alias_display for record in equipo.active_alias_records]
+            aliases = effective_equipo_aliases(
+                equipo=equipo,
+                records=equipo.prefetched_alias_records,
+            )
             match = (
                 score_equipo_match(
                     equipo=equipo,

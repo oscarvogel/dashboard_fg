@@ -4,6 +4,8 @@
 
 `EquipoAlias` es la fuente de verdad de aliases confirmados. El campo `Equipo.aliases` de `moviles` se conserva como caché compatible y nunca debe escribirse directamente desde un consumidor nuevo.
 
+Durante la transición, una búsqueda también conserva visibles los valores JSON que todavía no tienen ningún registro relacional. En cuanto existe historial relacional para una clave, su estado activo/inactivo prevalece sobre el JSON.
+
 Un alias activo es globalmente único. La API conserva historial mediante `activo=false`; no borra registros físicamente.
 
 ## Autenticación y permisos

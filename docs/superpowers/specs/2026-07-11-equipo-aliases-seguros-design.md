@@ -19,6 +19,8 @@ Se crea `EquipoAlias` como fuente de verdad durable. `Equipo.aliases`, el `JSONF
 
 Toda confirmación, desactivación o escritura legacy pasa por un servicio único que actualiza `EquipoAlias` y reconstruye `Equipo.aliases` dentro de una transacción. La migración no importa ni altera datos por sí sola. El comando seguro de sincronización incorpora aliases JSON preexistentes como registros con origen `importacion`, sin sobrescribir aliases manuales.
 
+Hasta que un valor JSON sea importado, la búsqueda lo mantiene visible como fallback compatible. Cuando existe un registro relacional activo o inactivo para la misma clave normalizada, `EquipoAlias` prevalece.
+
 ## Modelo `EquipoAlias`
 
 Campos:

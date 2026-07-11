@@ -563,6 +563,18 @@ class EquipoSearchApiTests(TestCase):
 
         self.assertEqual(response.data["total"], 0)
 
+    def test_unimported_legacy_json_alias_remains_searchable(self):
+        Equipo.objects.filter(pk=self.ponsse.pk).update(aliases=["Azul Legacy"])
+        self.client.force_authenticate(self.user)
+
+        response = self.search("Azul Legacy")
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.data["total"], 1)
+        self.assertEqual(response.data["results"][0]["id"], self.ponsse.id)
+        self.assertEqual(response.data["results"][0]["aliases"], ["Azul Legacy"])
+        self.assertEqual(response.data["results"][0]["match_type"], "alias")
+
     def test_query_count_does_not_grow_with_number_of_equipment(self):
         self.client.force_authenticate(self.user)
 

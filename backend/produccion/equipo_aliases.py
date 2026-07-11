@@ -99,6 +99,27 @@ def score_equipo_match(*, equipo, normalized_query, aliases):
     return best
 
 
+def effective_equipo_aliases(*, equipo, records):
+    known_keys = {record.alias_normalizado for record in records}
+    aliases = [record.alias_display for record in records if record.activo]
+    active_keys = {
+        record.alias_normalizado for record in records if record.activo
+    }
+    for value in equipo.aliases or []:
+        if not isinstance(value, str):
+            continue
+        try:
+            legacy = normalize_alias(value)
+        except ValidationError:
+            continue
+        if legacy.normalized in known_keys or legacy.normalized in active_keys:
+            continue
+        aliases.append(legacy.display)
+        active_keys.add(legacy.normalized)
+    aliases.sort(key=lambda value: (value.casefold(), value))
+    return aliases
+
+
 def normalize_alias(value):
     if not isinstance(value, str):
         raise ValidationError("El alias debe ser texto")
