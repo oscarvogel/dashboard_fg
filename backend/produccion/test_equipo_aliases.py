@@ -563,3 +563,99 @@ class EquipoSearchApiTests(TestCase):
 
         self.assertEqual(response.status_code, 200)
         self.assertGreaterEqual(response.data["total"], 2)
+
+
+class EquipoAliasLegacyPatchTests(TestCase):
+    @classmethod
+    def setUpTestData(cls):
+        cls.staff = get_user_model().objects.create_user(username="staff", is_staff=True)
+        cls.regular = get_user_model().objects.create_user(username="regular")
+        cls.permitted = get_user_model().objects.create_user(username="permitted")
+        cls.permitted.user_permissions.add(
+            Permission.objects.get(
+                content_type=ContentType.objects.get_for_model(EquipoAlias),
+                codename="change_equipoalias",
+            )
+        )
+        cls.equipo = Equipo.objects.create(patente="LEGACY-1", detalle="Legacy 1")
+        cls.other = Equipo.objects.create(patente="LEGACY-2", detalle="Legacy 2")
+
+    def setUp(self):
+        self.client = APIClient()
+        self.url = f"/api/equipos/{self.equipo.patente}/aliases/"
+
+    def test_requires_authentication_and_manage_permission(self):
+        anonymous = self.client.patch(self.url, {"add": ["JCB"]}, format="json")
+        self.client.force_authenticate(self.regular)
+        regular = self.client.patch(self.url, {"add": ["JCB"]}, format="json")
+
+        self.assertEqual(anonymous.status_code, 401)
+        self.assertEqual(regular.status_code, 403)
+
+    def test_add_is_audited_idempotent_and_deprecated(self):
+        self.client.force_authenticate(self.permitted)
+
+        first = self.client.patch(self.url, {"add": ["JCB", " j c b "]}, format="json")
+        second = self.client.patch(self.url, {"add": ["JCB"]}, format="json")
+
+        self.assertEqual(first.status_code, 200)
+        self.assertEqual(second.status_code, 200)
+        self.assertEqual(first.headers["Deprecation"], "true")
+        self.assertIn("/api/equipos/aliases/confirm/", first.headers["Link"])
+        record = EquipoAlias.objects.get()
+        self.assertEqual(record.confirmado_por, self.permitted)
+        self.assertEqual(record.origen, EquipoAlias.Origen.MANUAL)
+        self.assertEqual(first.data["aliases"], ["JCB"])
+
+    def test_conflict_rolls_back_all_additions(self):
+        confirm_equipo_alias(
+            equipo=self.other,
+            alias="CONFLICT",
+            origen=EquipoAlias.Origen.MANUAL,
+            confirmado_por=self.staff,
+        )
+        self.client.force_authenticate(self.staff)
+
+        response = self.client.patch(
+            self.url,
+            {"add": ["CREATED-FIRST", "CONFLICT"]},
+            format="json",
+        )
+
+        self.assertEqual(response.status_code, 409)
+        self.assertFalse(EquipoAlias.objects.filter(equipo=self.equipo).exists())
+        self.equipo.refresh_from_db()
+        self.assertEqual(self.equipo.aliases, [])
+
+    def test_replace_is_admin_only_and_logically_deactivates_omitted_alias(self):
+        first = confirm_equipo_alias(
+            equipo=self.equipo,
+            alias="FIRST",
+            origen=EquipoAlias.Origen.MANUAL,
+            confirmado_por=self.staff,
+        ).alias
+        confirm_equipo_alias(
+            equipo=self.equipo,
+            alias="KEEP",
+            origen=EquipoAlias.Origen.MANUAL,
+            confirmado_por=self.staff,
+        )
+        self.client.force_authenticate(self.permitted)
+        forbidden = self.client.patch(
+            self.url,
+            {"replace": ["KEEP"]},
+            format="json",
+        )
+        self.client.force_authenticate(self.staff)
+        replaced = self.client.patch(
+            self.url,
+            {"replace": ["KEEP", "NEW"]},
+            format="json",
+        )
+
+        self.assertEqual(forbidden.status_code, 403)
+        self.assertEqual(replaced.status_code, 200)
+        first.refresh_from_db()
+        self.assertFalse(first.activo)
+        self.assertEqual(replaced.data["aliases"], ["KEEP", "NEW"])
+        self.assertEqual(EquipoAlias.objects.filter(equipo=self.equipo).count(), 3)

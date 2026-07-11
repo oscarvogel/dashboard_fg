@@ -12,7 +12,7 @@ import django_filters as df                            # django-filter
 from django.contrib.auth import authenticate
 
 from django.db.models import Prefetch, Q, Sum
-from django.db import models
+from django.db import models, transaction
 from django.contrib.auth.hashers import check_password as django_check_password
 
 from django.db.models.functions import Trim
@@ -24,6 +24,7 @@ from rest_framework.views import APIView
 from rest_framework.response import Response
 from rest_framework import viewsets, status
 from rest_framework import filters
+from rest_framework.exceptions import PermissionDenied, ValidationError as DRFValidationError
 from rest_framework.permissions import AllowAny  # 👈 Recomendado
 
 from .equipo_aliases import (
@@ -1618,32 +1619,70 @@ class EquipoAliasesPatchView(APIView):
     Body: {"add": ["bufalo", "PONSSE"]} o {"replace": ["PONSSE BUFALO"]}.
     Devuelve el Equipo actualizado.
     """
-    permission_classes = [AllowAny]   # ajustar con auth JWT en deploy
+    permission_classes = [IsAuthenticated, CanManageEquipoAliases]
 
     def patch(self, request, patente):
-        try:
-            row = Equipo.objects.values('id', 'aliases').get(patente=patente)
-        except Equipo.DoesNotExist:
-            return Response({'error': f'Equipo con patente {patente!r} no existe'}, status=404)
-
-        aliases_actual = list(row.get('aliases') or [])
-        add = request.data.get('add', []) if hasattr(request, 'data') else []
+        equipo = get_object_or_404(Equipo, patente=patente)
+        add = request.data.get('add', [])
         replace = request.data.get('replace')
+        if replace is not None and not (request.user.is_staff or request.user.is_superuser):
+            raise PermissionDenied("Solo un administrador puede reemplazar aliases.")
+        values = replace if replace is not None else add
+        if not isinstance(values, list) or any(not isinstance(value, str) for value in values):
+            raise DRFValidationError({"aliases": "Debe enviar una lista de textos."})
 
-        if replace is not None:
-            nuevos = list(replace) if isinstance(replace, list) else []
-        else:
-            nuevos = list(aliases_actual)
-            for a in (add if isinstance(add, list) else []):
-                if isinstance(a, str) and a.strip() and a not in nuevos:
-                    nuevos.append(a)
+        initial_keys = set(
+            EquipoAlias.objects.filter(equipo=equipo, activo=True).values_list(
+                'alias_normalizado', flat=True
+            )
+        )
+        try:
+            with transaction.atomic():
+                desired_keys = {
+                    normalize_alias(value).normalized
+                    for value in values
+                }
+                for value in values:
+                    confirm_equipo_alias(
+                        equipo=equipo,
+                        alias=value,
+                        origen=EquipoAlias.Origen.MANUAL,
+                        confirmado_por=request.user,
+                        metadata={"source": "legacy_patch"},
+                    )
+                if replace is not None:
+                    active_records = EquipoAlias.objects.select_for_update().filter(
+                        equipo=equipo,
+                        activo=True,
+                    )
+                    for record in active_records:
+                        if record.alias_normalizado not in desired_keys:
+                            deactivate_equipo_alias(alias_record=record)
+        except AliasConflict as conflict:
+            return Response(
+                {
+                    "error": "alias_conflict",
+                    "requires_confirmation": True,
+                    "candidates": conflict.candidates,
+                },
+                status=status.HTTP_409_CONFLICT,
+            )
 
-        Equipo.objects.filter(pk=row['id']).update(aliases=nuevos)
-        return Response({
+        equipo.refresh_from_db(fields=("aliases",))
+        current_records = EquipoAlias.objects.filter(equipo=equipo, activo=True)
+        added = list(
+            current_records.exclude(alias_normalizado__in=initial_keys)
+            .order_by("alias_display", "id")
+            .values_list("alias_display", flat=True)
+        )
+        response = Response({
             'patente': patente,
-            'aliases': nuevos,
-            'added': [a for a in nuevos if a not in aliases_actual],
+            'aliases': equipo.aliases,
+            'added': added,
         })
+        response['Deprecation'] = 'true'
+        response['Link'] = '</api/equipos/aliases/confirm/>; rel="successor-version"'
+        return response
 
 
 class EquipoAliasConfirmView(APIView):
