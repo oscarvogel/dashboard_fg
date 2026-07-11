@@ -52,14 +52,25 @@ class Command(BaseCommand):
             "invalid": 0,
         }
         for candidate in candidates:
+            if candidate.normalized not in conflicts:
+                continue
+            counters["conflicts"] += 1
+            owners = ",".join(
+                map(str, sorted(conflicts[candidate.normalized]))
+            )
+            self.stdout.write(
+                "CONFLICTO "
+                f"equipo={candidate.equipo.id} patente={candidate.equipo.patente} "
+                f"alias={candidate.display!r} origen={candidate.origen} "
+                f"campo={candidate.field} equipos={owners}"
+            )
+
+        for candidate in candidates:
             prefix = (
                 f"equipo={candidate.equipo.id} patente={candidate.equipo.patente} "
                 f"alias={candidate.display!r} origen={candidate.origen} campo={candidate.field}"
             )
             if candidate.normalized in conflicts:
-                counters["conflicts"] += 1
-                owners = ",".join(map(str, sorted(conflicts[candidate.normalized])))
-                self.stdout.write(f"CONFLICTO {prefix} equipos={owners}")
                 continue
 
             existing = EquipoAlias.objects.filter(

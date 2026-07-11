@@ -71,14 +71,14 @@ class SyncEquipoAliasesCommandTests(TestCase):
 
     def test_conflicts_are_reported_and_not_applied(self):
         first = self.create_equipo(
-            patente="SAME",
+            patente="SAFE-1",
             detalle="Equipo A",
-            codigo_fg="",
+            codigo_fg="SAME",
             modelo_normalizado="",
             aliases=[],
         )
         second = self.create_equipo(
-            patente="OTHER",
+            patente="SAFE-2",
             detalle="Equipo B",
             codigo_fg="SAME",
             modelo_normalizado="",
@@ -91,6 +91,8 @@ class SyncEquipoAliasesCommandTests(TestCase):
         )
 
         self.assertIn("CONFLICTO", output)
+        self.assertIn("APLICADO", output)
+        self.assertLess(output.index("CONFLICTO"), output.index("APLICADO"))
         self.assertFalse(
             EquipoAlias.objects.filter(
                 alias_normalizado="same",
