@@ -108,7 +108,7 @@
               class="w-full px-3 py-1.5 border border-gray-300 rounded-md shadow-sm focus:ring-2 focus:ring-primary-500 focus:outline-none text-sm"
             >
               <option value="">Todos</option>
-              <option v-for="op in operadores" :key="op" :value="op">{{ op }}</option>
+              <option v-for="op in operadores" :key="op.id" :value="op.id">{{ op.nombre }}</option>
             </select>
             <div v-if="loadingFiltros" class="text-xs text-primary-500 mt-1 animate-pulse">Cargando operadores...</div>
           </div>

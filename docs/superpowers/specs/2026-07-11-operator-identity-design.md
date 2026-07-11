@@ -25,7 +25,7 @@ The ORM relation therefore uses `null=False`, `blank=False`, `db_constraint=Fals
 - `operador_nombre`, sourced from `cod_operador.nombre`.
 - `operador_texto_legacy`, sourced from `operador` for diagnosis.
 
-Querysets that serialize or display operators use `select_related("cod_operador")`. Orphan or missing relations serialize with null ID/name without fuzzy matching.
+Querysets already restricted to a valid operator use `select_related("cod_operador")`. General dashboard lists use `prefetch_related("cod_operador")`: the real database contains one orphan ID, and an inner join would silently remove that legacy row. Both strategies prevent N+1 queries; orphan or missing relations retain the record and serialize with a null canonical name without fuzzy matching.
 
 `ProduccionOperadorView` accepts the existing `operador` parameter for compatibility plus the explicit `operador_id`; both are interpreted as an integer ID and filter `cod_operador_id` only. Dashboard filtering changes from legacy text matching to operator ID equality.
 

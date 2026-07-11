@@ -17,7 +17,7 @@
             <label class="block text-sm font-medium text-gray-700 mb-1">Chofer</label>
             <select v-model="selectedChofer" class="w-full border-gray-300 rounded-md p-2">
               <option value="">Todos</option>
-              <option v-for="op in operadores" :key="op" :value="op">{{ op }}</option>
+              <option v-for="op in operadores" :key="op.id" :value="op.id">{{ op.nombre }}</option>
             </select>
           </div>
         </div>
@@ -238,8 +238,8 @@ const buscar = async (opts = {}) => {
     // If user typed a free-text filter, try sending it as `operador` if it matches known operadores, otherwise as `search`
     if (filterText.value) {
       const q = filterText.value.toString().trim()
-      const match = operadores.value.find(o => o.toString().toLowerCase() === q.toLowerCase())
-      if (match) params.set('operador', match)
+      const match = operadores.value.find(o => o.nombre.toLowerCase() === q.toLowerCase())
+      if (match) params.set('operador', match.id)
       else params.append('search', q)
     }
 
@@ -277,8 +277,8 @@ const buscarFull = async () => {
 
     if (filterText.value) {
       const q = filterText.value.toString().trim()
-      const match = operadores.value.find(o => o.toString().toLowerCase() === q.toLowerCase())
-      if (match) params.set('operador', match)
+      const match = operadores.value.find(o => o.nombre.toLowerCase() === q.toLowerCase())
+      if (match) params.set('operador', match.id)
       else params.append('search', q)
     }
 

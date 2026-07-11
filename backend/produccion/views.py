@@ -81,13 +81,13 @@ class CombustibleSinProduccionView(APIView):
 class ProduccionOperadorView(APIView):
 
     def get(self, request):
-        operador = request.GET.get('operador')
+        operador_id = request.GET.get('operador_id') or request.GET.get('operador')
         fecha_inicio = request.GET.get('fecha_inicio')
         fecha_fin = request.GET.get('fecha_fin')
 
-        if not operador or not fecha_inicio or not fecha_fin:
+        if not operador_id or not fecha_inicio or not fecha_fin:
             return Response(
-                {"error": "Faltan parámetros: operador, fecha_inicio, fecha_fin"},
+                {"error": "Faltan parámetros: operador u operador_id, fecha_inicio, fecha_fin"},
                 status=status.HTTP_400_BAD_REQUEST
             )
 
@@ -100,11 +100,20 @@ class ProduccionOperadorView(APIView):
                 status=status.HTTP_400_BAD_REQUEST
             )
 
-        print(fecha_inicio, fecha_fin)
+        try:
+            operador_id = int(operador_id)
+            if operador_id <= 0:
+                raise ValueError
+        except (TypeError, ValueError):
+            return Response(
+                {"error": "operador_id debe ser un entero positivo"},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
         registros = RegistroProduccion.objects.filter(
-            cod_operador=operador,
+            cod_operador_id=operador_id,
             fecha__range=[fecha_inicio, fecha_fin]
-        ).order_by('-fecha')
+        ).select_related('cod_operador', 'cod_equipo', 'cod_un', 'origen_camion').order_by('-fecha')
 
         if not registros.exists():
             return Response({"error": "No se encontraron registros"}, status=status.HTTP_404_NOT_FOUND)
@@ -131,7 +140,8 @@ class ProduccionOperadorView(APIView):
         produccion_por_hora = round(float(produccion_total) / float(horas_total), 2) if horas_total > 0 else 0.00
 
         return Response({
-            "operador": ultimo_registro.operador,
+            "operador_id": ultimo_registro.cod_operador_id,
+            "operador": ultimo_registro.cod_operador.nombre,
             "produccion_acumulada_mensual": {
                 "m3": m3_total,
                 "litros": float(litros_total),
@@ -219,9 +229,9 @@ class RegistrosEmpleadoViewSet(DebugSerializerErrorsMixin, viewsets.GenericViewS
 
         # Filtrar registros
         registros = RegistroProduccion.objects.filter(
-            cod_operador=empleado_id,
+            cod_operador_id=empleado_id,
             fecha__range=[fecha_inicio, fecha_fin]
-        ).order_by('fecha')
+        ).select_related('cod_operador', 'cod_equipo', 'cod_un', 'origen_camion').order_by('fecha')
 
         # Paginación
         page = self.paginate_queryset(registros)
@@ -292,11 +302,20 @@ class FiltrosDinamicosView(APIView):
                 "predios": []
             })
 
-        registros = RegistroProduccion.objects.filter(filtro).select_related('cod_equipo', 'cod_un', 'origen_camion')
+        registros = RegistroProduccion.objects.filter(filtro).select_related('cod_equipo', 'cod_un', 'cod_operador', 'origen_camion')
 
         # Obtener opciones únicas
         operaciones = list(registros.values_list('operacion', flat=True).distinct().order_by('operacion'))
-        operadores = list(registros.values_list('operador', flat=True).distinct().order_by('operador'))
+        operadores_qs = (
+            registros.values('cod_operador_id', 'cod_operador__nombre')
+            .distinct()
+            .order_by('cod_operador__nombre', 'cod_operador_id')
+        )
+        operadores = [
+            {'id': item['cod_operador_id'], 'nombre': item['cod_operador__nombre']}
+            for item in operadores_qs
+            if item['cod_operador_id'] and item['cod_operador__nombre']
+        ]
         equipos = list(registros.values_list('cod_equipo__detalle', flat=True).distinct().order_by('cod_equipo__detalle'))
         actas = list(registros.values_list('acta', flat=True).distinct().order_by('acta'))
         predios = list(registros.values_list('predio', flat=True).distinct().order_by('predio'))
@@ -319,7 +338,7 @@ class FiltrosDinamicosView(APIView):
             "operaciones": [op for op in operaciones if op],
             "unidades": unidades,
             "equipos": [eq for eq in equipos if eq],
-            "operadores": [o for o in operadores if o],
+            "operadores": operadores,
             "actas": [a for a in actas if a],
             "predios": [p for p in predios if p]
         })
@@ -942,12 +961,26 @@ class ProduccionDashboardView(APIView):
         if detalle_equipo:
             filtro &= Q(cod_equipo__detalle=detalle_equipo)
         if operador:
-            filtro &= Q(operador__icontains=operador)
+            try:
+                operador_id = int(operador)
+                if operador_id <= 0:
+                    raise ValueError
+            except (TypeError, ValueError):
+                return Response(
+                    {"error": "El parámetro 'operador' debe ser un ID entero positivo."},
+                    status=status.HTTP_400_BAD_REQUEST,
+                )
+            filtro &= Q(cod_operador_id=operador_id)
         if acta:
             filtro &= Q(acta=acta)
 
         # Ordenar por fecha y hora de fin para evitar resultados inconsistentes
-        registros = RegistroProduccion.objects.filter(filtro).select_related('cod_equipo', 'cod_un').order_by('-fecha', '-hr_fin')
+        registros = (
+            RegistroProduccion.objects.filter(filtro)
+            .select_related('cod_equipo', 'cod_un', 'origen_camion')
+            .prefetch_related('cod_operador')
+            .order_by('-fecha', '-hr_fin')
+        )
 
         # Dataset completo para gráficos (sin paginar). Orden ascendente para series temporales.
         registros_grafico_qs = RegistroProduccion.objects.filter(filtro).select_related('cod_equipo', 'cod_un').order_by('fecha', 'hr_fin')
@@ -1051,12 +1084,21 @@ class ProduccionDashboardView(APIView):
         # =======================
         # 6. Filtros dinámicos
         # =======================
-        registros_filtro = RegistroProduccion.objects.filter(filtro).select_related('cod_equipo', 'origen_camion')
+        registros_filtro = RegistroProduccion.objects.filter(filtro).select_related('cod_equipo', 'cod_operador', 'origen_camion')
 
         operaciones = list(registros_filtro.values_list('operacion', flat=True).distinct().order_by('operacion'))
         unidades = list(registros_filtro.values_list('cod_un__nombre', flat=True).distinct().order_by('cod_un__nombre'))
         equipos = list(registros_filtro.values_list('cod_equipo__detalle', flat=True).distinct().order_by('cod_equipo__detalle'))
-        operadores = list(registros_filtro.values_list('operador', flat=True).distinct().order_by('operador'))
+        operadores_qs = (
+            registros_filtro.values('cod_operador_id', 'cod_operador__nombre')
+            .distinct()
+            .order_by('cod_operador__nombre', 'cod_operador_id')
+        )
+        operadores = [
+            {'id': item['cod_operador_id'], 'nombre': item['cod_operador__nombre']}
+            for item in operadores_qs
+            if item['cod_operador_id'] and item['cod_operador__nombre']
+        ]
         actas = list(registros_filtro.values_list('acta', flat=True).distinct().order_by('acta'))
 
         # =======================
@@ -1090,7 +1132,7 @@ class ProduccionDashboardView(APIView):
                     "operaciones": [op for op in operaciones if op],
                     "unidades": [u for u in unidades if u],
                     "equipos": [e for e in equipos if e],
-                    "operadores": [o for o in operadores if o],
+                    "operadores": operadores,
                     "actas": [a for a in actas if a],
                 }
             }
@@ -1120,7 +1162,7 @@ class ProduccionDashboardView(APIView):
                 "operaciones": [op for op in operaciones if op],
                 "unidades": [u for u in unidades if u],
                 "equipos": [e for e in equipos if e],
-                "operadores": [o for o in operadores if o],
+                "operadores": operadores,
                 "actas": [a for a in actas if a],
             }
         }, status=status.HTTP_200_OK)
@@ -1233,9 +1275,9 @@ def maquinas_por_frente_operador(request):
     # Obtener registros ordenados por fecha y hr_fin (descendente)
     registros = RegistroProduccion.objects.filter(filtro).select_related(
         'cod_equipo', 'cod_un'
-    ).only(
+    ).prefetch_related('cod_operador').only(
         'cod_equipo__id', 'cod_equipo__patente', 'cod_equipo__detalle',
-        'cod_un__nombre', 'operador', 'fecha', 'hr_fin'
+        'cod_un__nombre', 'cod_operador_id', 'cod_operador__nombre', 'operador', 'fecha', 'hr_fin'
     ).order_by('-fecha', '-hr_fin')  # Primero los más recientes
 
     # Eliminar duplicados: guardar solo el más reciente por (equipo, frente, operador)
@@ -1243,14 +1285,20 @@ def maquinas_por_frente_operador(request):
     resultado = []
 
     for reg in registros:
-        key = (reg.cod_equipo.id, reg.cod_un.nombre if reg.cod_un else None, reg.operador)
+        try:
+            operador_nombre = reg.cod_operador.nombre
+        except Empleado.DoesNotExist:
+            operador_nombre = None
+        key = (reg.cod_equipo.id, reg.cod_un.nombre if reg.cod_un else None, reg.cod_operador_id)
         if key not in vistos:
             vistos.add(key)
             resultado.append({
                 'cod_equipo': reg.cod_equipo.patente,         # Patente como ID
                 'detalle_equipo': reg.cod_equipo.detalle,    # Detalle del equipo (ej: "Excavadora 20T")
                 'frente': reg.cod_un.nombre if reg.cod_un else None,
-                'operador': reg.operador,
+                'operador_id': reg.cod_operador_id,
+                'operador': operador_nombre,
+                'operador_texto_legacy': reg.operador,
                 'ultima_fecha': reg.fecha,
                 'ultima_hr_fin': float(reg.hr_fin) if reg.hr_fin else None  # Decimal a float
             })
