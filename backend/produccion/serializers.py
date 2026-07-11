@@ -1,5 +1,6 @@
 from rest_framework import serializers
-from .models import CargaCombustible, Empleado, Equipo, RegistroProduccion
+from .equipo_aliases import normalize_alias
+from .models import CargaCombustible, Empleado, Equipo, EquipoAlias, RegistroProduccion
 
 # class RegistroProduccionSerializer(serializers.ModelSerializer):
 #     class Meta:
@@ -156,3 +157,54 @@ class EquipoSerializer(serializers.ModelSerializer):
             'unidad_negocio', 'unidad_negocio_nombre',
             'baja',
         ]
+
+
+class ObjectJSONField(serializers.JSONField):
+    default_error_messages = {"not_object": "metadata debe ser un objeto."}
+
+    def to_internal_value(self, data):
+        value = super().to_internal_value(data)
+        if not isinstance(value, dict):
+            self.fail("not_object")
+        return value
+
+
+class EquipoAliasConfirmSerializer(serializers.Serializer):
+    equipo_id = serializers.IntegerField(min_value=1)
+    alias = serializers.CharField(max_length=120, trim_whitespace=True)
+    origen = serializers.ChoiceField(
+        choices=EquipoAlias.Origen.choices,
+        default=EquipoAlias.Origen.MANUAL,
+    )
+    metadata = ObjectJSONField(required=False, default=dict)
+
+    def validate_alias(self, value):
+        return normalize_alias(value).display
+
+
+class EquipoAliasSerializer(serializers.ModelSerializer):
+    display = serializers.CharField(source="alias_display")
+    normalized = serializers.CharField(source="alias_normalizado")
+    confirmado_por = serializers.SerializerMethodField()
+
+    class Meta:
+        model = EquipoAlias
+        fields = (
+            "id",
+            "display",
+            "normalized",
+            "activo",
+            "origen",
+            "confirmado_por",
+            "confirmado_at",
+            "created_at",
+            "updated_at",
+            "metadata",
+        )
+
+    def get_confirmado_por(self, obj):
+        user = obj.confirmado_por
+        return {
+            "id": user.id,
+            "nombre": user.get_full_name() or user.get_username(),
+        }

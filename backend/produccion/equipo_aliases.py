@@ -5,6 +5,7 @@ import unicodedata
 from django.core.exceptions import ValidationError
 from django.db import IntegrityError, transaction
 from django.utils import timezone
+from rest_framework.permissions import BasePermission
 
 from .models import Equipo, EquipoAlias
 
@@ -40,6 +41,34 @@ class AliasConflict(Exception):
     def __init__(self, candidates):
         super().__init__("El alias ya está activo en otro equipo")
         self.candidates = candidates
+
+
+class CanManageEquipoAliases(BasePermission):
+    message = "No tiene permiso para confirmar aliases de equipos."
+
+    def has_permission(self, request, view):
+        user = request.user
+        return bool(
+            user
+            and user.is_authenticated
+            and (
+                user.is_staff
+                or user.is_superuser
+                or user.has_perm("produccion.change_equipoalias")
+            )
+        )
+
+
+class IsEquipoAliasAdmin(BasePermission):
+    message = "Solo un administrador puede desactivar aliases de equipos."
+
+    def has_permission(self, request, view):
+        user = request.user
+        return bool(
+            user
+            and user.is_authenticated
+            and (user.is_staff or user.is_superuser)
+        )
 
 
 def normalize_alias(value):

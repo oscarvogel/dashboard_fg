@@ -1,15 +1,21 @@
 from django.core.exceptions import ValidationError
 from django.contrib.auth import get_user_model
+from django.contrib.auth.models import Permission
+from django.contrib.contenttypes.models import ContentType
 from django.db import IntegrityError, transaction
 from django.test import SimpleTestCase, TestCase
+from rest_framework.test import APIRequestFactory, force_authenticate
 
 from .equipo_aliases import (
     AliasConflict,
     confirm_equipo_alias,
     deactivate_equipo_alias,
     normalize_alias,
+    CanManageEquipoAliases,
+    IsEquipoAliasAdmin,
 )
 from .models import Equipo, EquipoAlias
+from .serializers import EquipoAliasConfirmSerializer
 
 
 class EquipoAliasNormalizationTests(SimpleTestCase):
@@ -211,3 +217,86 @@ class EquipoAliasServiceTests(TestCase):
         self.assertIsNone(result.alias.alias_activo_key)
         self.equipo_1.refresh_from_db()
         self.assertEqual(self.equipo_1.aliases, [])
+
+
+class EquipoAliasPermissionTests(TestCase):
+    def setUp(self):
+        self.factory = APIRequestFactory()
+        self.view = type("AliasView", (), {})()
+
+    def request_for(self, user):
+        request = self.factory.post("/api/equipos/aliases/confirm/", {})
+        force_authenticate(request, user=user)
+        request.user = user
+        return request
+
+    def test_manage_permission_accepts_staff_superuser_or_explicit_permission(self):
+        regular = get_user_model().objects.create_user(username="regular")
+        staff = get_user_model().objects.create_user(username="staff", is_staff=True)
+        superuser = get_user_model().objects.create_superuser(
+            username="root",
+            email="root@example.test",
+            password="unused",
+        )
+        permitted = get_user_model().objects.create_user(username="permitted")
+        permission = Permission.objects.get(
+            content_type=ContentType.objects.get_for_model(EquipoAlias),
+            codename="change_equipoalias",
+        )
+        permitted.user_permissions.add(permission)
+
+        checker = CanManageEquipoAliases()
+        self.assertFalse(checker.has_permission(self.request_for(regular), self.view))
+        self.assertTrue(checker.has_permission(self.request_for(staff), self.view))
+        self.assertTrue(checker.has_permission(self.request_for(superuser), self.view))
+        self.assertTrue(checker.has_permission(self.request_for(permitted), self.view))
+
+    def test_admin_permission_only_accepts_staff_or_superuser(self):
+        regular = get_user_model().objects.create_user(username="regular")
+        staff = get_user_model().objects.create_user(username="staff", is_staff=True)
+        checker = IsEquipoAliasAdmin()
+
+        self.assertFalse(checker.has_permission(self.request_for(regular), self.view))
+        self.assertTrue(checker.has_permission(self.request_for(staff), self.view))
+
+
+class EquipoAliasSerializerTests(SimpleTestCase):
+    def test_validates_payload_and_does_not_accept_confirmer_identity(self):
+        serializer = EquipoAliasConfirmSerializer(
+            data={
+                "equipo_id": 208,
+                "alias": " JCB ",
+                "origen": "openclaw",
+                "metadata": {"source": "whatsapp"},
+                "confirmado_por": 999,
+            }
+        )
+
+        self.assertTrue(serializer.is_valid(), serializer.errors)
+        self.assertEqual(serializer.validated_data["equipo_id"], 208)
+        self.assertEqual(serializer.validated_data["alias"], "JCB")
+        self.assertNotIn("confirmado_por", serializer.validated_data)
+
+    def test_requires_equipment_and_alias_and_validates_origin(self):
+        missing = EquipoAliasConfirmSerializer(data={})
+        invalid_origin = EquipoAliasConfirmSerializer(
+            data={"equipo_id": 1, "alias": "JCB", "origen": "robot"}
+        )
+
+        self.assertFalse(missing.is_valid())
+        self.assertEqual(set(missing.errors), {"equipo_id", "alias"})
+        self.assertFalse(invalid_origin.is_valid())
+        self.assertIn("origen", invalid_origin.errors)
+
+    def test_rejects_empty_long_alias_and_non_object_metadata(self):
+        cases = (
+            ({"equipo_id": 1, "alias": " "}, "alias"),
+            ({"equipo_id": 1, "alias": "x" * 121}, "alias"),
+            ({"equipo_id": 1, "alias": "JCB", "metadata": []}, "metadata"),
+        )
+
+        for payload, expected_field in cases:
+            with self.subTest(payload=payload):
+                serializer = EquipoAliasConfirmSerializer(data=payload)
+                self.assertFalse(serializer.is_valid())
+                self.assertIn(expected_field, serializer.errors)
