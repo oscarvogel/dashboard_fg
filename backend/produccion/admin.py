@@ -1,6 +1,6 @@
 from django.contrib import admin
 
-from produccion.models import Empleado, Equipo
+from produccion.models import Empleado, Equipo, EquipoAlias
 
 # Register your models here.
 @admin.register(Empleado)
@@ -21,4 +21,32 @@ class EquipoAdmin(admin.ModelAdmin):
     search_fields = ('patente', 'detalle', 'codigo_fg', 'modelo_normalizado')
     list_filter = ('baja', 'tipo_movil', 'unidad_negocio')
     list_editable = ('codigo_fg', 'modelo_normalizado', 'baja')
+
+
+@admin.register(EquipoAlias)
+class EquipoAliasAdmin(admin.ModelAdmin):
+    list_display = (
+        "alias_display",
+        "equipo",
+        "activo",
+        "origen",
+        "confirmado_por",
+        "confirmado_at",
+    )
+    list_filter = ("activo", "origen")
+    search_fields = (
+        "alias_display",
+        "alias_normalizado",
+        "equipo__patente",
+        "equipo__detalle",
+    )
+    readonly_fields = (
+        "alias_normalizado",
+        "alias_activo_key",
+        "confirmado_por",
+        "confirmado_at",
+        "created_at",
+        "updated_at",
+    )
+    list_select_related = ("equipo", "confirmado_por")
     

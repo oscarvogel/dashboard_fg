@@ -1,6 +1,8 @@
 from django.contrib.auth.models import User
+from django.conf import settings
 
 from django.db import models
+from django.utils import timezone
 
 # Create your models here.
 
@@ -132,6 +134,53 @@ class Equipo(models.Model):
 
     def __str__(self):
         return f'{self.patente} - {self.detalle}'
+
+
+class EquipoAlias(models.Model):
+    class Origen(models.TextChoices):
+        MANUAL = "manual", "Manual"
+        OPENCLAW = "openclaw", "OpenClaw"
+        IMPORTACION = "importacion", "Importación"
+        SISTEMA = "sistema", "Sistema"
+
+    equipo = models.ForeignKey(
+        Equipo,
+        on_delete=models.PROTECT,
+        related_name="alias_records",
+    )
+    alias_display = models.CharField(max_length=120)
+    alias_normalizado = models.CharField(max_length=120, db_index=True)
+    alias_activo_key = models.CharField(
+        max_length=120,
+        null=True,
+        blank=True,
+        unique=True,
+        editable=False,
+    )
+    activo = models.BooleanField(default=True)
+    origen = models.CharField(max_length=20, choices=Origen.choices)
+    confirmado_por = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.PROTECT,
+        related_name="equipo_aliases_confirmados",
+    )
+    confirmado_at = models.DateTimeField(default=timezone.now)
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+    metadata = models.JSONField(default=dict, blank=True)
+
+    class Meta:
+        db_table = "equipo_alias"
+        ordering = ("alias_display", "id")
+        constraints = [
+            models.UniqueConstraint(
+                fields=("equipo", "alias_normalizado"),
+                name="equipo_alias_equipo_normalizado_uniq",
+            ),
+        ]
+
+    def __str__(self):
+        return f"{self.alias_display} -> {self.equipo.patente}"
     
 class Empleado(models.Model):
     # Relación con User de Django

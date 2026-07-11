@@ -1,7 +1,10 @@
 from django.core.exceptions import ValidationError
-from django.test import SimpleTestCase
+from django.contrib.auth import get_user_model
+from django.db import IntegrityError, transaction
+from django.test import SimpleTestCase, TestCase
 
 from .equipo_aliases import normalize_alias
+from .models import Equipo, EquipoAlias
 
 
 class EquipoAliasNormalizationTests(SimpleTestCase):
@@ -30,3 +33,62 @@ class EquipoAliasNormalizationTests(SimpleTestCase):
             normalize_alias("   ")
         with self.assertRaisesMessage(ValidationError, "El alias no puede superar 120 caracteres"):
             normalize_alias("x" * 121)
+
+
+class EquipoAliasModelTests(TestCase):
+    @classmethod
+    def setUpTestData(cls):
+        cls.user = get_user_model().objects.create_user(
+            username="alias-admin",
+            password="unused",
+        )
+        cls.equipo_1 = Equipo.objects.create(patente="TEST-1", detalle="Equipo 1")
+        cls.equipo_2 = Equipo.objects.create(patente="TEST-2", detalle="Equipo 2")
+
+    def create_alias(self, **overrides):
+        values = {
+            "equipo": self.equipo_1,
+            "alias_display": "JCB",
+            "alias_normalizado": "jcb",
+            "alias_activo_key": "jcb",
+            "activo": True,
+            "origen": EquipoAlias.Origen.MANUAL,
+            "confirmado_por": self.user,
+            "metadata": {"source": "test"},
+        }
+        values.update(overrides)
+        return EquipoAlias.objects.create(**values)
+
+    def test_stores_equipment_audit_origin_and_metadata(self):
+        alias = self.create_alias()
+
+        self.assertEqual(alias.equipo, self.equipo_1)
+        self.assertEqual(alias.confirmado_por, self.user)
+        self.assertEqual(alias.origen, EquipoAlias.Origen.MANUAL)
+        self.assertEqual(alias.metadata, {"source": "test"})
+        self.assertIsNotNone(alias.confirmado_at)
+        self.assertIsNotNone(alias.created_at)
+        self.assertIsNotNone(alias.updated_at)
+
+    def test_same_normalized_alias_is_unique_per_equipment(self):
+        self.create_alias()
+
+        with self.assertRaises(IntegrityError), transaction.atomic():
+            self.create_alias(alias_activo_key=None, activo=False)
+
+    def test_active_alias_key_is_unique_globally(self):
+        self.create_alias()
+
+        with self.assertRaises(IntegrityError), transaction.atomic():
+            self.create_alias(equipo=self.equipo_2)
+
+    def test_inactive_history_can_repeat_normalized_alias_on_other_equipment(self):
+        first = self.create_alias(activo=False, alias_activo_key=None)
+        second = self.create_alias(
+            equipo=self.equipo_2,
+            activo=False,
+            alias_activo_key=None,
+        )
+
+        self.assertIsNone(first.alias_activo_key)
+        self.assertIsNone(second.alias_activo_key)
