@@ -33,8 +33,57 @@ class ConsultaCombustibleParamsSerializer(serializers.Serializer):
         return attrs
 
 
+def _normalize_date_params(query_params):
+    data = query_params.copy()
+    canonical_keys = ("start_date", "end_date")
+    legacy_keys = ("inicio", "fin")
+    canonical_present = [key in data for key in canonical_keys]
+    legacy_present = [key in data for key in legacy_keys]
+
+    if any(canonical_present) and not all(canonical_present):
+        raise serializers.ValidationError(
+            {
+                "date_range": (
+                    "Debe enviar juntos start_date y end_date. "
+                    "No mezcle nombres de parámetros incompletos."
+                )
+            }
+        )
+    if any(legacy_present) and not all(legacy_present):
+        raise serializers.ValidationError(
+            {
+                "date_range": (
+                    "Debe enviar juntos inicio y fin. "
+                    "No mezcle nombres de parámetros incompletos."
+                )
+            }
+        )
+
+    if all(canonical_present) and all(legacy_present):
+        if (
+            data.get("start_date") != data.get("inicio")
+            or data.get("end_date") != data.get("fin")
+        ):
+            raise serializers.ValidationError(
+                {
+                    "date_range": (
+                        "start_date/end_date e inicio/fin deben representar "
+                        "el mismo rango cuando se envían juntos."
+                    )
+                }
+            )
+
+    if all(canonical_present):
+        data["inicio"] = data.get("start_date")
+        data["fin"] = data.get("end_date")
+
+    return data
+
+
 def parse_consulta_params(query_params, include_history=False):
-    serializer = ConsultaCombustibleParamsSerializer(data=query_params)
+    serializer = ConsultaCombustibleParamsSerializer(
+        data=_normalize_date_params(query_params)
+    )
     serializer.is_valid(raise_exception=True)
     data = dict(serializer.validated_data)
     if not include_history:
