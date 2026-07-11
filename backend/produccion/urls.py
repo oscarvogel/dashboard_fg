@@ -1,9 +1,12 @@
 from django.urls import path, include
 from .views import (
     CargasCombustibleView, CombustibleEquipoLHView, CombustibleEquipoVsHistoricoView,
-    CombustibleSinProduccionView, EmpleadoViewSet, EquipoAliasesPatchView, EquiposListSearchView, EquiposPorUNView,
-    FacturacionMovilView, FiltrosCombustibleView, FiltrosDinamicosView, HorasNoOperativasDashboardView, LoginEmpleadoView,
-    MovilOperativoView, MovilesRankingView, ProduccionDashboardView, ProduccionEjecutivaView, ProduccionOperadorView, RegistrosEmpleadoViewSet,
+    CombustibleSinProduccionView, EmpleadoViewSet, EquipoAliasConfirmView, EquipoAliasDeactivateView,
+    EquipoAliasHistoryView, EquipoAliasesPatchView, EquiposListSearchView, EquiposPorUNView,
+    FacturacionMovilView, FiltrosCombustibleView, FiltrosDinamicosView,
+    HorasNoOperativasDashboardView, LoginEmpleadoView, MovilOperativoView,
+    MovilesRankingView, ProduccionDashboardView, ProduccionEjecutivaView,
+    ProduccionOperadorView, RegistrosEmpleadoViewSet,
     ResumenOperacionalView, UnidadesNegocioActivasView, maquinas_por_frente_operador, resumen_maquinas_componentes,
 )
 from rest_framework.routers import DefaultRouter
@@ -36,5 +39,8 @@ urlpatterns = [
     path('resumen-maquinas-componentes/', resumen_maquinas_componentes, name='resumen_maquinas_componentes'),
     # === feature/equipo-aliases (2026-07-08) ===================================
     path('equipos/', EquiposListSearchView.as_view(), name='equipos-search'),
+    path('equipos/aliases/confirm/', EquipoAliasConfirmView.as_view(), name='equipos-aliases-confirm'),
+    path('equipos/aliases/<int:alias_id>/deactivate/', EquipoAliasDeactivateView.as_view(), name='equipos-aliases-deactivate'),
+    path('equipos/<int:equipo_id>/aliases/', EquipoAliasHistoryView.as_view(), name='equipos-aliases-history'),
     path('equipos/<str:patente>/aliases/', EquipoAliasesPatchView.as_view(), name='equipos-aliases-patch'),
 ]

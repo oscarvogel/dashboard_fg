@@ -4,15 +4,15 @@ from django.http import JsonResponse
 import logging
 import os
 
-from django.shortcuts import render
+from django.shortcuts import get_object_or_404, render
 from rest_framework_simplejwt.tokens import RefreshToken
 from rest_framework.permissions import IsAuthenticated
 from django_filters import rest_framework as filters
 import django_filters as df                            # django-filter
 from django.contrib.auth import authenticate
 
-from django.db.models import Q, Sum
-from django.db import models
+from django.db.models import Prefetch, Q, Sum
+from django.db import models, transaction
 from django.contrib.auth.hashers import check_password as django_check_password
 
 from django.db.models.functions import Trim
@@ -24,10 +24,21 @@ from rest_framework.views import APIView
 from rest_framework.response import Response
 from rest_framework import viewsets, status
 from rest_framework import filters
+from rest_framework.exceptions import PermissionDenied, ValidationError as DRFValidationError
 from rest_framework.permissions import AllowAny  # 👈 Recomendado
 
-from .models import CargaCombustible, Empleado, Equipo, ProduccionMensual, RegistroProduccion, UnidadNegocio
-from .serializers import CargaCombustibleSerializer, EmpleadoSerializer, EquipoSerializer, LoginSerializer, RegistroProduccionDiarioSerializer, RegistroProduccionSerializer
+from .equipo_aliases import (
+    AliasConflict,
+    CanManageEquipoAliases,
+    IsEquipoAliasAdmin,
+    confirm_equipo_alias,
+    deactivate_equipo_alias,
+    effective_equipo_aliases,
+    normalize_alias,
+    score_equipo_match,
+)
+from .models import CargaCombustible, Empleado, Equipo, EquipoAlias, ProduccionMensual, RegistroProduccion, UnidadNegocio
+from .serializers import CargaCombustibleSerializer, EmpleadoSerializer, EquipoAliasConfirmSerializer, EquipoAliasSerializer, EquipoSerializer, LoginSerializer, RegistroProduccionDiarioSerializer, RegistroProduccionSerializer
 from .combustible_services import (
     combustible_equipo_lh,
     combustible_equipo_vs_historico,
@@ -1578,7 +1589,7 @@ class EquiposListSearchView(APIView):
       - Regla #1: NO se auto-crean Equipos. Solo se devuelven existentes.
       - Regla #4: si hay N>1 matches, el caller resuelve con su usuario final.
     """
-    permission_classes = [AllowAny]   # ajustar con auth JWT en el deploy
+    permission_classes = [IsAuthenticated]
 
     def get(self, request):
         try:
@@ -1587,36 +1598,64 @@ class EquiposListSearchView(APIView):
         except (TypeError, ValueError):
             return Response({'error': 'limit/offset invalid'}, status=400)
 
-        # Cargar todos los equipos con campos selectivos. Catalogo chico
-        # (decenas a cientos), por lo que el filtro se hace 100% Python.
-        rows = list(Equipo.objects.values(
-            'id', 'patente', 'detalle', 'codigo_fg', 'modelo_normalizado',
-            'aliases', 'ultima_sync_filtros', 'baja',
-        ).order_by('detalle'))
-
         q = request.query_params.get('q', '').strip()
-        if q:
-            ql = q.lower()
-            def match(row):
-                if ql in (row.get('detalle') or '').lower(): return True
-                if ql in (row.get('codigo_fg') or '').lower(): return True
-                if ql in (row.get('patente') or '').lower(): return True
-                if ql in (row.get('modelo_normalizado') or '').lower(): return True
-                for alias in (row.get('aliases') or []):
-                    if isinstance(alias, str) and ql in alias.lower(): return True
-                return False
-            filtered = [r for r in rows if match(r)]
-        else:
-            filtered = rows
+        normalized_query = normalize_alias(q).normalized if q else ''
+        equipos = Equipo.objects.prefetch_related(
+            Prefetch(
+                'alias_records',
+                queryset=EquipoAlias.objects.order_by('alias_display', 'id'),
+                to_attr='prefetched_alias_records',
+            )
+        )
+        ranked = []
+        for equipo in equipos:
+            aliases = effective_equipo_aliases(
+                equipo=equipo,
+                records=equipo.prefetched_alias_records,
+            )
+            match = (
+                score_equipo_match(
+                    equipo=equipo,
+                    normalized_query=normalized_query,
+                    aliases=aliases,
+                )
+                if q
+                else ('all', 0.0)
+            )
+            if match is None:
+                continue
+            match_type, match_score = match
+            ranked.append({
+                'id': equipo.id,
+                'patente': equipo.patente,
+                'detalle': equipo.detalle,
+                'codigo_fg': equipo.codigo_fg,
+                'modelo_normalizado': equipo.modelo_normalizado,
+                'aliases': aliases,
+                'ultima_sync_filtros': equipo.ultima_sync_filtros,
+                'baja': equipo.baja,
+                'match_type': match_type,
+                'match_score': match_score,
+            })
 
-        total = len(filtered)
-        window = filtered[offset:offset + limit]
+        ranked.sort(
+            key=lambda item: (
+                -item['match_score'],
+                item['patente'].casefold(),
+                item['id'],
+            )
+        )
+        total = len(ranked)
+        window = ranked[offset:offset + limit]
         return Response({
+            'query': q,
+            'normalized_query': normalized_query,
             'total': total,
             'limit': limit,
             'offset': offset,
             'count': len(window),
             'results': window,
+            'requires_confirmation': bool(q and total > 1),
         })
 
 
@@ -1626,29 +1665,154 @@ class EquipoAliasesPatchView(APIView):
     Body: {"add": ["bufalo", "PONSSE"]} o {"replace": ["PONSSE BUFALO"]}.
     Devuelve el Equipo actualizado.
     """
-    permission_classes = [AllowAny]   # ajustar con auth JWT en deploy
+    permission_classes = [IsAuthenticated, CanManageEquipoAliases]
 
     def patch(self, request, patente):
-        try:
-            row = Equipo.objects.values('id', 'aliases').get(patente=patente)
-        except Equipo.DoesNotExist:
-            return Response({'error': f'Equipo con patente {patente!r} no existe'}, status=404)
-
-        aliases_actual = list(row.get('aliases') or [])
-        add = request.data.get('add', []) if hasattr(request, 'data') else []
+        equipo = get_object_or_404(Equipo, patente=patente)
+        add = request.data.get('add', [])
         replace = request.data.get('replace')
+        if replace is not None and not (request.user.is_staff or request.user.is_superuser):
+            raise PermissionDenied("Solo un administrador puede reemplazar aliases.")
+        values = replace if replace is not None else add
+        if not isinstance(values, list) or any(not isinstance(value, str) for value in values):
+            raise DRFValidationError({"aliases": "Debe enviar una lista de textos."})
 
-        if replace is not None:
-            nuevos = list(replace) if isinstance(replace, list) else []
-        else:
-            nuevos = list(aliases_actual)
-            for a in (add if isinstance(add, list) else []):
-                if isinstance(a, str) and a.strip() and a not in nuevos:
-                    nuevos.append(a)
+        initial_keys = set(
+            EquipoAlias.objects.filter(equipo=equipo, activo=True).values_list(
+                'alias_normalizado', flat=True
+            )
+        )
+        try:
+            with transaction.atomic():
+                desired_keys = {
+                    normalize_alias(value).normalized
+                    for value in values
+                }
+                for value in values:
+                    confirm_equipo_alias(
+                        equipo=equipo,
+                        alias=value,
+                        origen=EquipoAlias.Origen.MANUAL,
+                        confirmado_por=request.user,
+                        metadata={"source": "legacy_patch"},
+                    )
+                if replace is not None:
+                    active_records = EquipoAlias.objects.select_for_update().filter(
+                        equipo=equipo,
+                        activo=True,
+                    )
+                    for record in active_records:
+                        if record.alias_normalizado not in desired_keys:
+                            deactivate_equipo_alias(alias_record=record)
+        except AliasConflict as conflict:
+            return Response(
+                {
+                    "error": "alias_conflict",
+                    "requires_confirmation": True,
+                    "candidates": conflict.candidates,
+                },
+                status=status.HTTP_409_CONFLICT,
+            )
 
-        Equipo.objects.filter(pk=row['id']).update(aliases=nuevos)
-        return Response({
+        equipo.refresh_from_db(fields=("aliases",))
+        current_records = EquipoAlias.objects.filter(equipo=equipo, activo=True)
+        added = list(
+            current_records.exclude(alias_normalizado__in=initial_keys)
+            .order_by("alias_display", "id")
+            .values_list("alias_display", flat=True)
+        )
+        response = Response({
             'patente': patente,
-            'aliases': nuevos,
-            'added': [a for a in nuevos if a not in aliases_actual],
+            'aliases': equipo.aliases,
+            'added': added,
         })
+        response['Deprecation'] = 'true'
+        response['Link'] = '</api/equipos/aliases/confirm/>; rel="successor-version"'
+        return response
+
+
+class EquipoAliasConfirmView(APIView):
+    permission_classes = [IsAuthenticated, CanManageEquipoAliases]
+
+    def post(self, request):
+        serializer = EquipoAliasConfirmSerializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        equipo = get_object_or_404(Equipo, pk=serializer.validated_data["equipo_id"])
+        try:
+            result = confirm_equipo_alias(
+                equipo=equipo,
+                alias=serializer.validated_data["alias"],
+                origen=serializer.validated_data["origen"],
+                confirmado_por=request.user,
+                metadata=serializer.validated_data["metadata"],
+            )
+        except AliasConflict as conflict:
+            return Response(
+                {
+                    "error": "alias_conflict",
+                    "requires_confirmation": True,
+                    "candidates": conflict.candidates,
+                },
+                status=status.HTTP_409_CONFLICT,
+            )
+
+        return Response(
+            {
+                "status": "confirmed",
+                "created": result.created,
+                "equipo": {
+                    "id": equipo.id,
+                    "patente": equipo.patente,
+                    "detalle": equipo.detalle,
+                },
+                "alias": EquipoAliasSerializer(result.alias).data,
+            },
+            status=(
+                status.HTTP_201_CREATED
+                if result.created
+                else status.HTTP_200_OK
+            ),
+        )
+
+
+class EquipoAliasHistoryView(APIView):
+    permission_classes = [IsAuthenticated]
+
+    def get(self, request, equipo_id):
+        equipo = get_object_or_404(Equipo, pk=equipo_id)
+        records = list(
+            EquipoAlias.objects.filter(equipo=equipo)
+            .select_related("confirmado_por")
+            .order_by("-activo", "alias_display", "id")
+        )
+        return Response(
+            {
+                "equipo": {
+                    "id": equipo.id,
+                    "patente": equipo.patente,
+                    "detalle": equipo.detalle,
+                },
+                "active": EquipoAliasSerializer(
+                    [record for record in records if record.activo], many=True
+                ).data,
+                "history": EquipoAliasSerializer(records, many=True).data,
+            }
+        )
+
+
+class EquipoAliasDeactivateView(APIView):
+    permission_classes = [IsAuthenticated, IsEquipoAliasAdmin]
+
+    def post(self, request, alias_id):
+        alias_record = get_object_or_404(
+            EquipoAlias.objects.select_related("confirmado_por"),
+            pk=alias_id,
+        )
+        result = deactivate_equipo_alias(alias_record=alias_record)
+        return Response(
+            {
+                "status": "deactivated",
+                "changed": result.changed,
+                "alias": EquipoAliasSerializer(result.alias).data,
+            }
+        )
