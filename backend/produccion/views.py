@@ -4,7 +4,7 @@ from django.http import JsonResponse
 import logging
 import os
 
-from django.shortcuts import render
+from django.shortcuts import get_object_or_404, render
 from rest_framework_simplejwt.tokens import RefreshToken
 from rest_framework.permissions import IsAuthenticated
 from django_filters import rest_framework as filters
@@ -26,8 +26,15 @@ from rest_framework import viewsets, status
 from rest_framework import filters
 from rest_framework.permissions import AllowAny  # 👈 Recomendado
 
-from .models import CargaCombustible, Empleado, Equipo, ProduccionMensual, RegistroProduccion, UnidadNegocio
-from .serializers import CargaCombustibleSerializer, EmpleadoSerializer, EquipoSerializer, LoginSerializer, RegistroProduccionDiarioSerializer, RegistroProduccionSerializer
+from .equipo_aliases import (
+    AliasConflict,
+    CanManageEquipoAliases,
+    IsEquipoAliasAdmin,
+    confirm_equipo_alias,
+    deactivate_equipo_alias,
+)
+from .models import CargaCombustible, Empleado, Equipo, EquipoAlias, ProduccionMensual, RegistroProduccion, UnidadNegocio
+from .serializers import CargaCombustibleSerializer, EmpleadoSerializer, EquipoAliasConfirmSerializer, EquipoAliasSerializer, EquipoSerializer, LoginSerializer, RegistroProduccionDiarioSerializer, RegistroProduccionSerializer
 from .combustible_services import (
     combustible_equipo_lh,
     combustible_equipo_vs_historico,
@@ -1608,3 +1615,90 @@ class EquipoAliasesPatchView(APIView):
             'aliases': nuevos,
             'added': [a for a in nuevos if a not in aliases_actual],
         })
+
+
+class EquipoAliasConfirmView(APIView):
+    permission_classes = [IsAuthenticated, CanManageEquipoAliases]
+
+    def post(self, request):
+        serializer = EquipoAliasConfirmSerializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        equipo = get_object_or_404(Equipo, pk=serializer.validated_data["equipo_id"])
+        try:
+            result = confirm_equipo_alias(
+                equipo=equipo,
+                alias=serializer.validated_data["alias"],
+                origen=serializer.validated_data["origen"],
+                confirmado_por=request.user,
+                metadata=serializer.validated_data["metadata"],
+            )
+        except AliasConflict as conflict:
+            return Response(
+                {
+                    "error": "alias_conflict",
+                    "requires_confirmation": True,
+                    "candidates": conflict.candidates,
+                },
+                status=status.HTTP_409_CONFLICT,
+            )
+
+        return Response(
+            {
+                "status": "confirmed",
+                "created": result.created,
+                "equipo": {
+                    "id": equipo.id,
+                    "patente": equipo.patente,
+                    "detalle": equipo.detalle,
+                },
+                "alias": EquipoAliasSerializer(result.alias).data,
+            },
+            status=(
+                status.HTTP_201_CREATED
+                if result.created
+                else status.HTTP_200_OK
+            ),
+        )
+
+
+class EquipoAliasHistoryView(APIView):
+    permission_classes = [IsAuthenticated]
+
+    def get(self, request, equipo_id):
+        equipo = get_object_or_404(Equipo, pk=equipo_id)
+        records = list(
+            EquipoAlias.objects.filter(equipo=equipo)
+            .select_related("confirmado_por")
+            .order_by("-activo", "alias_display", "id")
+        )
+        return Response(
+            {
+                "equipo": {
+                    "id": equipo.id,
+                    "patente": equipo.patente,
+                    "detalle": equipo.detalle,
+                },
+                "active": EquipoAliasSerializer(
+                    [record for record in records if record.activo], many=True
+                ).data,
+                "history": EquipoAliasSerializer(records, many=True).data,
+            }
+        )
+
+
+class EquipoAliasDeactivateView(APIView):
+    permission_classes = [IsAuthenticated, IsEquipoAliasAdmin]
+
+    def post(self, request, alias_id):
+        alias_record = get_object_or_404(
+            EquipoAlias.objects.select_related("confirmado_por"),
+            pk=alias_id,
+        )
+        result = deactivate_equipo_alias(alias_record=alias_record)
+        return Response(
+            {
+                "status": "deactivated",
+                "changed": result.changed,
+                "alias": EquipoAliasSerializer(result.alias).data,
+            }
+        )

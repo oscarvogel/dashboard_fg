@@ -4,7 +4,7 @@ from django.contrib.auth.models import Permission
 from django.contrib.contenttypes.models import ContentType
 from django.db import IntegrityError, transaction
 from django.test import SimpleTestCase, TestCase
-from rest_framework.test import APIRequestFactory, force_authenticate
+from rest_framework.test import APIClient, APIRequestFactory, force_authenticate
 
 from .equipo_aliases import (
     AliasConflict,
@@ -300,3 +300,160 @@ class EquipoAliasSerializerTests(SimpleTestCase):
                 serializer = EquipoAliasConfirmSerializer(data=payload)
                 self.assertFalse(serializer.is_valid())
                 self.assertIn(expected_field, serializer.errors)
+
+
+class EquipoAliasApiTests(TestCase):
+    @classmethod
+    def setUpTestData(cls):
+        cls.staff = get_user_model().objects.create_user(
+            username="oscar",
+            first_name="Oscar",
+            last_name="Vogel",
+            is_staff=True,
+        )
+        cls.regular = get_user_model().objects.create_user(username="regular")
+        cls.equipo = Equipo.objects.create(
+            patente="PROCE-Nº2",
+            detalle="Procesador JCB JS220F - Nº 1",
+        )
+        cls.other_equipo = Equipo.objects.create(
+            patente="PROCE-Nº3",
+            detalle="Procesador JCB JS220F - Nº 2",
+        )
+
+    def setUp(self):
+        self.client = APIClient()
+        self.confirm_url = "/api/equipos/aliases/confirm/"
+
+    def payload(self, **overrides):
+        values = {
+            "equipo_id": self.equipo.id,
+            "alias": "JCB",
+            "origen": "openclaw",
+            "metadata": {"source": "whatsapp"},
+        }
+        values.update(overrides)
+        return values
+
+    def test_confirm_without_authentication_returns_401(self):
+        response = self.client.post(self.confirm_url, self.payload(), format="json")
+
+        self.assertEqual(response.status_code, 401)
+
+    def test_authenticated_user_without_permission_returns_403(self):
+        self.client.force_authenticate(self.regular)
+
+        response = self.client.post(self.confirm_url, self.payload(), format="json")
+
+        self.assertEqual(response.status_code, 403)
+
+    def test_staff_creates_then_idempotently_confirms_alias(self):
+        self.client.force_authenticate(self.staff)
+
+        created = self.client.post(self.confirm_url, self.payload(), format="json")
+        repeated = self.client.post(
+            self.confirm_url,
+            self.payload(alias=" j c b ", confirmado_por=self.regular.id),
+            format="json",
+        )
+
+        self.assertEqual(created.status_code, 201)
+        self.assertTrue(created.data["created"])
+        self.assertEqual(created.data["status"], "confirmed")
+        self.assertEqual(created.data["equipo"]["id"], self.equipo.id)
+        self.assertEqual(created.data["alias"]["normalized"], "jcb")
+        self.assertEqual(
+            created.data["alias"]["confirmado_por"],
+            {"id": self.staff.id, "nombre": "Oscar Vogel"},
+        )
+        self.assertEqual(repeated.status_code, 200)
+        self.assertFalse(repeated.data["created"])
+        self.assertEqual(EquipoAlias.objects.count(), 1)
+
+    def test_validation_and_missing_equipment_statuses(self):
+        self.client.force_authenticate(self.staff)
+
+        empty = self.client.post(
+            self.confirm_url,
+            self.payload(alias=" "),
+            format="json",
+        )
+        long_alias = self.client.post(
+            self.confirm_url,
+            self.payload(alias="x" * 121),
+            format="json",
+        )
+        missing = self.client.post(
+            self.confirm_url,
+            self.payload(equipo_id=999999),
+            format="json",
+        )
+
+        self.assertEqual(empty.status_code, 400)
+        self.assertEqual(long_alias.status_code, 400)
+        self.assertEqual(missing.status_code, 404)
+
+    def test_conflict_returns_409_candidates_and_changes_nothing(self):
+        confirm_equipo_alias(
+            equipo=self.other_equipo,
+            alias="JCB",
+            origen=EquipoAlias.Origen.MANUAL,
+            confirmado_por=self.staff,
+        )
+        self.client.force_authenticate(self.staff)
+
+        response = self.client.post(self.confirm_url, self.payload(), format="json")
+
+        self.assertEqual(response.status_code, 409)
+        self.assertEqual(response.data["error"], "alias_conflict")
+        self.assertEqual(
+            response.data["candidates"],
+            [
+                {
+                    "equipo_id": self.other_equipo.id,
+                    "patente": "PROCE-Nº3",
+                    "detalle": "Procesador JCB JS220F - Nº 2",
+                }
+            ],
+        )
+        self.assertEqual(EquipoAlias.objects.count(), 1)
+
+    def test_history_requires_auth_and_includes_active_and_inactive(self):
+        alias = confirm_equipo_alias(
+            equipo=self.equipo,
+            alias="JCB",
+            origen=EquipoAlias.Origen.MANUAL,
+            confirmado_por=self.staff,
+        ).alias
+        deactivate_equipo_alias(alias_record=alias)
+        url = f"/api/equipos/{self.equipo.id}/aliases/"
+
+        anonymous = self.client.get(url)
+        self.client.force_authenticate(self.regular)
+        authenticated = self.client.get(url)
+
+        self.assertEqual(anonymous.status_code, 401)
+        self.assertEqual(authenticated.status_code, 200)
+        self.assertEqual(authenticated.data["active"], [])
+        self.assertEqual(len(authenticated.data["history"]), 1)
+        self.assertFalse(authenticated.data["history"][0]["activo"])
+
+    def test_deactivate_is_admin_only_and_idempotent(self):
+        alias = confirm_equipo_alias(
+            equipo=self.equipo,
+            alias="JCB",
+            origen=EquipoAlias.Origen.MANUAL,
+            confirmado_por=self.staff,
+        ).alias
+        url = f"/api/equipos/aliases/{alias.id}/deactivate/"
+        self.client.force_authenticate(self.regular)
+        forbidden = self.client.post(url, {}, format="json")
+        self.client.force_authenticate(self.staff)
+        first = self.client.post(url, {}, format="json")
+        second = self.client.post(url, {}, format="json")
+
+        self.assertEqual(forbidden.status_code, 403)
+        self.assertEqual(first.status_code, 200)
+        self.assertTrue(first.data["changed"])
+        self.assertEqual(second.status_code, 200)
+        self.assertFalse(second.data["changed"])
