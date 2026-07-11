@@ -26,7 +26,7 @@ Hasta que un valor JSON sea importado, la búsqueda lo mantiene visible como fal
 Campos:
 
 - `id`: clave primaria.
-- `equipo`: FK a `Equipo.id`/`moviles.idmovil`, con borrado protegido.
+- `equipo`: FK lógica a `Equipo.id`/`moviles.idmovil`, con borrado protegido en Django y `db_constraint=False` por la clave legacy `int unsigned`.
 - `alias_display`: texto legible confirmado, máximo 120 caracteres.
 - `alias_normalizado`: clave normalizada, máximo 120 caracteres.
 - `alias_activo_key`: clave técnica nullable; replica `alias_normalizado` cuando el registro está activo y usa `NULL` cuando está inactivo.

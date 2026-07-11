@@ -28,7 +28,7 @@ class Migration(migrations.Migration):
                 ('updated_at', models.DateTimeField(auto_now=True)),
                 ('metadata', models.JSONField(blank=True, default=dict)),
                 ('confirmado_por', models.ForeignKey(on_delete=django.db.models.deletion.PROTECT, related_name='equipo_aliases_confirmados', to=settings.AUTH_USER_MODEL)),
-                ('equipo', models.ForeignKey(on_delete=django.db.models.deletion.PROTECT, related_name='alias_records', to='produccion.equipo')),
+                ('equipo', models.ForeignKey(db_constraint=False, on_delete=django.db.models.deletion.PROTECT, related_name='alias_records', to='produccion.equipo')),
             ],
             options={
                 'db_table': 'equipo_alias',

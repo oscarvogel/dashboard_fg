@@ -81,6 +81,11 @@ class EquipoAliasModelTests(TestCase):
         self.assertIsNotNone(alias.created_at)
         self.assertIsNotNone(alias.updated_at)
 
+    def test_equipment_foreign_key_avoids_legacy_unsigned_db_constraint(self):
+        field = EquipoAlias._meta.get_field("equipo")
+
+        self.assertFalse(field.db_constraint)
+
     def test_same_normalized_alias_is_unique_per_equipment(self):
         self.create_alias()
 

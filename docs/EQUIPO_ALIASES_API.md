@@ -8,6 +8,8 @@ Durante la transición, una búsqueda también conserva visibles los valores JSO
 
 Un alias activo es globalmente único. La API conserva historial mediante `activo=false`; no borra registros físicamente.
 
+La relación con `Equipo` es una FK lógica Django con `PROTECT` y `db_constraint=False`: la tabla legacy usa `moviles.idMovil int unsigned`, incompatible con el entero signed que generaría Django para una FK física. El servicio valida siempre la existencia del equipo.
+
 ## Autenticación y permisos
 
 Todas las rutas usan JWT:

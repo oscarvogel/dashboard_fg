@@ -147,6 +147,7 @@ class EquipoAlias(models.Model):
         Equipo,
         on_delete=models.PROTECT,
         related_name="alias_records",
+        db_constraint=False,
     )
     alias_display = models.CharField(max_length=120)
     alias_normalizado = models.CharField(max_length=120, db_index=True)
