@@ -3,7 +3,12 @@ from django.contrib.auth import get_user_model
 from django.db import IntegrityError, transaction
 from django.test import SimpleTestCase, TestCase
 
-from .equipo_aliases import normalize_alias
+from .equipo_aliases import (
+    AliasConflict,
+    confirm_equipo_alias,
+    deactivate_equipo_alias,
+    normalize_alias,
+)
 from .models import Equipo, EquipoAlias
 
 
@@ -92,3 +97,117 @@ class EquipoAliasModelTests(TestCase):
 
         self.assertIsNone(first.alias_activo_key)
         self.assertIsNone(second.alias_activo_key)
+
+
+class EquipoAliasServiceTests(TestCase):
+    @classmethod
+    def setUpTestData(cls):
+        cls.user = get_user_model().objects.create_user(
+            username="oscar",
+            first_name="Oscar",
+            last_name="Vogel",
+        )
+        cls.other_user = get_user_model().objects.create_user(username="operator")
+        cls.equipo_1 = Equipo.objects.create(
+            patente="PROCE-Nº2",
+            detalle="Procesador JCB JS220F - Nº 1",
+        )
+        cls.equipo_2 = Equipo.objects.create(
+            patente="PROCE-Nº3",
+            detalle="Procesador JCB JS220F - Nº 2",
+        )
+
+    def confirm(self, equipo=None, alias="JCB", **overrides):
+        values = {
+            "equipo": equipo or self.equipo_1,
+            "alias": alias,
+            "origen": EquipoAlias.Origen.OPENCLAW,
+            "confirmado_por": self.user,
+            "metadata": {"source": "whatsapp"},
+        }
+        values.update(overrides)
+        return confirm_equipo_alias(**values)
+
+    def test_creates_alias_with_audit_and_updates_compatibility_cache(self):
+        result = self.confirm(alias="  Procesadór\u2013 JCB ")
+
+        self.assertTrue(result.created)
+        self.assertEqual(result.alias.alias_display, "Procesadór- JCB")
+        self.assertEqual(result.alias.alias_normalizado, "procesadorjcb")
+        self.assertEqual(result.alias.alias_activo_key, "procesadorjcb")
+        self.assertEqual(result.alias.confirmado_por, self.user)
+        self.assertEqual(result.alias.metadata, {"source": "whatsapp"})
+        self.equipo_1.refresh_from_db()
+        self.assertEqual(self.equipo_1.aliases, ["Procesadór- JCB"])
+
+    def test_same_equipment_confirmation_is_idempotent(self):
+        first = self.confirm()
+        second = self.confirm(alias=" j c b ")
+
+        self.assertTrue(first.created)
+        self.assertFalse(second.created)
+        self.assertEqual(second.alias.pk, first.alias.pk)
+        self.assertEqual(EquipoAlias.objects.count(), 1)
+        self.equipo_1.refresh_from_db()
+        self.assertEqual(self.equipo_1.aliases, ["JCB"])
+
+    def test_reactivates_inactive_alias_and_refreshes_audit(self):
+        first = self.confirm()
+        deactivate_equipo_alias(alias_record=first.alias)
+
+        result = self.confirm(
+            confirmado_por=self.other_user,
+            metadata={"source": "manual"},
+        )
+
+        self.assertFalse(result.created)
+        self.assertTrue(result.alias.activo)
+        self.assertEqual(result.alias.alias_activo_key, "jcb")
+        self.assertEqual(result.alias.confirmado_por, self.other_user)
+        self.assertEqual(result.alias.metadata, {"source": "manual"})
+
+    def test_conflict_on_other_equipment_changes_nothing(self):
+        self.confirm(equipo=self.equipo_1)
+
+        with self.assertRaises(AliasConflict) as context:
+            self.confirm(equipo=self.equipo_2)
+
+        self.assertEqual(
+            context.exception.candidates,
+            [
+                {
+                    "equipo_id": self.equipo_1.id,
+                    "patente": "PROCE-Nº2",
+                    "detalle": "Procesador JCB JS220F - Nº 1",
+                }
+            ],
+        )
+        self.assertEqual(EquipoAlias.objects.count(), 1)
+        self.equipo_2.refresh_from_db()
+        self.assertEqual(self.equipo_2.aliases, [])
+
+    def test_rejects_invalid_origin_and_metadata(self):
+        with self.assertRaisesMessage(ValidationError, "Origen de alias inválido"):
+            self.confirm(origen="robot")
+        with self.assertRaisesMessage(ValidationError, "metadata debe ser un objeto"):
+            self.confirm(metadata=["invalid"])
+
+    def test_empty_and_overlong_aliases_are_rejected(self):
+        with self.assertRaises(ValidationError):
+            self.confirm(alias=" ")
+        with self.assertRaises(ValidationError):
+            self.confirm(alias="x" * 121)
+
+    def test_deactivation_is_logical_idempotent_and_updates_cache(self):
+        result = self.confirm()
+
+        first = deactivate_equipo_alias(alias_record=result.alias)
+        second = deactivate_equipo_alias(alias_record=result.alias)
+
+        self.assertTrue(first.changed)
+        self.assertFalse(second.changed)
+        result.alias.refresh_from_db()
+        self.assertFalse(result.alias.activo)
+        self.assertIsNone(result.alias.alias_activo_key)
+        self.equipo_1.refresh_from_db()
+        self.assertEqual(self.equipo_1.aliases, [])

@@ -3,6 +3,10 @@ import re
 import unicodedata
 
 from django.core.exceptions import ValidationError
+from django.db import IntegrityError, transaction
+from django.utils import timezone
+
+from .models import Equipo, EquipoAlias
 
 
 MAX_ALIAS_LENGTH = 120
@@ -18,6 +22,24 @@ _WHITESPACE = re.compile(r"\s+")
 class NormalizedAlias:
     display: str
     normalized: str
+
+
+@dataclass(frozen=True)
+class AliasConfirmationResult:
+    alias: EquipoAlias
+    created: bool
+
+
+@dataclass(frozen=True)
+class AliasDeactivationResult:
+    alias: EquipoAlias
+    changed: bool
+
+
+class AliasConflict(Exception):
+    def __init__(self, candidates):
+        super().__init__("El alias ya está activo en otro equipo")
+        self.candidates = candidates
 
 
 def normalize_alias(value):
@@ -44,3 +66,132 @@ def normalize_alias(value):
         raise ValidationError("El alias no puede estar vacío")
 
     return NormalizedAlias(display=display, normalized=normalized)
+
+
+def _conflict_candidates(normalized, exclude_equipo_id=None):
+    conflicts = EquipoAlias.objects.filter(
+        alias_activo_key=normalized,
+        activo=True,
+    )
+    if exclude_equipo_id is not None:
+        conflicts = conflicts.exclude(equipo_id=exclude_equipo_id)
+    rows = conflicts.order_by("equipo__patente", "equipo_id").values(
+        "equipo_id",
+        "equipo__patente",
+        "equipo__detalle",
+    )
+    return [
+        {
+            "equipo_id": row["equipo_id"],
+            "patente": row["equipo__patente"],
+            "detalle": row["equipo__detalle"],
+        }
+        for row in rows
+    ]
+
+
+def sync_equipo_alias_cache(equipo_id):
+    aliases = list(
+        EquipoAlias.objects.filter(equipo_id=equipo_id, activo=True)
+        .order_by("alias_display", "id")
+        .values_list("alias_display", flat=True)
+    )
+    Equipo.objects.filter(pk=equipo_id).update(aliases=aliases)
+    return aliases
+
+
+@transaction.atomic
+def confirm_equipo_alias(
+    *,
+    equipo,
+    alias,
+    origen,
+    confirmado_por,
+    metadata=None,
+):
+    normalized = normalize_alias(alias)
+    if origen not in EquipoAlias.Origen.values:
+        raise ValidationError("Origen de alias inválido")
+    if metadata is None:
+        metadata = {}
+    if not isinstance(metadata, dict):
+        raise ValidationError("metadata debe ser un objeto")
+
+    Equipo.objects.select_for_update().get(pk=equipo.pk)
+    conflicts = _conflict_candidates(normalized.normalized, equipo.pk)
+    if conflicts:
+        raise AliasConflict(conflicts)
+
+    existing = EquipoAlias.objects.select_for_update().filter(
+        equipo=equipo,
+        alias_normalizado=normalized.normalized,
+    ).first()
+    if existing and existing.activo:
+        sync_equipo_alias_cache(equipo.pk)
+        return AliasConfirmationResult(alias=existing, created=False)
+
+    now = timezone.now()
+    if existing:
+        existing.alias_display = normalized.display
+        existing.alias_activo_key = normalized.normalized
+        existing.activo = True
+        existing.origen = origen
+        existing.confirmado_por = confirmado_por
+        existing.confirmado_at = now
+        existing.metadata = metadata
+        try:
+            with transaction.atomic():
+                existing.save(
+                    update_fields=(
+                        "alias_display",
+                        "alias_activo_key",
+                        "activo",
+                        "origen",
+                        "confirmado_por",
+                        "confirmado_at",
+                        "metadata",
+                        "updated_at",
+                    )
+                )
+        except IntegrityError as error:
+            raise AliasConflict(
+                _conflict_candidates(normalized.normalized, equipo.pk)
+            ) from error
+        alias_record = existing
+        created = False
+    else:
+        try:
+            with transaction.atomic():
+                alias_record = EquipoAlias.objects.create(
+                    equipo=equipo,
+                    alias_display=normalized.display,
+                    alias_normalizado=normalized.normalized,
+                    alias_activo_key=normalized.normalized,
+                    activo=True,
+                    origen=origen,
+                    confirmado_por=confirmado_por,
+                    confirmado_at=now,
+                    metadata=metadata,
+                )
+        except IntegrityError as error:
+            raise AliasConflict(
+                _conflict_candidates(normalized.normalized, equipo.pk)
+            ) from error
+        created = True
+
+    sync_equipo_alias_cache(equipo.pk)
+    return AliasConfirmationResult(alias=alias_record, created=created)
+
+
+@transaction.atomic
+def deactivate_equipo_alias(*, alias_record):
+    locked = EquipoAlias.objects.select_for_update().get(pk=alias_record.pk)
+    changed = locked.activo
+    if changed:
+        locked.activo = False
+        locked.alias_activo_key = None
+        locked.save(update_fields=("activo", "alias_activo_key", "updated_at"))
+        sync_equipo_alias_cache(locked.equipo_id)
+    alias_record.activo = locked.activo
+    alias_record.alias_activo_key = locked.alias_activo_key
+    return AliasDeactivationResult(alias=locked, changed=changed)
