@@ -1,6 +1,7 @@
 from django.urls import path, include
 from .views import (
-    CargasCombustibleView, EmpleadoViewSet, EquipoAliasesPatchView, EquiposListSearchView, EquiposPorUNView,
+    CargasCombustibleView, CombustibleEquipoLHView, CombustibleEquipoVsHistoricoView,
+    CombustibleSinProduccionView, EmpleadoViewSet, EquipoAliasesPatchView, EquiposListSearchView, EquiposPorUNView,
     FiltrosCombustibleView, FiltrosDinamicosView, HorasNoOperativasDashboardView, LoginEmpleadoView,
     ProduccionDashboardView, ProduccionEjecutivaView, ProduccionOperadorView, RegistrosEmpleadoViewSet,
     ResumenOperacionalView, UnidadesNegocioActivasView, maquinas_por_frente_operador, resumen_maquinas_componentes,
@@ -24,10 +25,13 @@ urlpatterns = [
     path('filtros-combustible/', FiltrosCombustibleView.as_view(), name='filtros-combustible'),
     path('equipos-por-un/', EquiposPorUNView.as_view(), name='equipos-por-un'),
     path('cargas-combustible/', CargasCombustibleView.as_view(), name='cargas-combustible'),
+    path('combustible-equipo-lh/', CombustibleEquipoLHView.as_view(), name='combustible-equipo-lh'),
+    path('combustible-equipo-vs-historico/', CombustibleEquipoVsHistoricoView.as_view(), name='combustible-equipo-vs-historico'),
+    path('combustible-sin-produccion/', CombustibleSinProduccionView.as_view(), name='combustible-sin-produccion'),
     path('horas-no-operativas/', HorasNoOperativasDashboardView.as_view(), name='horas-no-operativas'),
     path('maquinas-frente-operador/', maquinas_por_frente_operador, name='maquinas_frente_operador'),
     path('resumen-maquinas-componentes/', resumen_maquinas_componentes, name='resumen_maquinas_componentes'),
     # === feature/equipo-aliases (2026-07-08) ===================================
     path('equipos/', EquiposListSearchView.as_view(), name='equipos-search'),
     path('equipos/<str:patente>/aliases/', EquipoAliasesPatchView.as_view(), name='equipos-aliases-patch'),
-]  
+]

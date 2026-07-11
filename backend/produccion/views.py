@@ -28,6 +28,12 @@ from rest_framework.permissions import AllowAny  # 👈 Recomendado
 
 from .models import CargaCombustible, Empleado, Equipo, ProduccionMensual, RegistroProduccion, UnidadNegocio
 from .serializers import CargaCombustibleSerializer, EmpleadoSerializer, EquipoSerializer, LoginSerializer, RegistroProduccionDiarioSerializer, RegistroProduccionSerializer
+from .combustible_services import (
+    combustible_equipo_lh,
+    combustible_equipo_vs_historico,
+    combustible_sin_produccion,
+    parse_consulta_params,
+)
 from django.db.models import Sum, F
 from datetime import datetime
 from datetime import timedelta, date
@@ -47,6 +53,30 @@ if not any(isinstance(h, logging.FileHandler) and getattr(h, 'baseFilename', '')
     fh.setFormatter(fmt)
     fh.setLevel(logging.DEBUG)
     logger.addHandler(fh)
+
+
+class CombustibleEquipoLHView(APIView):
+    permission_classes = [IsAuthenticated]
+
+    def get(self, request):
+        params = parse_consulta_params(request.query_params)
+        return Response(combustible_equipo_lh(**params))
+
+
+class CombustibleEquipoVsHistoricoView(APIView):
+    permission_classes = [IsAuthenticated]
+
+    def get(self, request):
+        params = parse_consulta_params(request.query_params, include_history=True)
+        return Response(combustible_equipo_vs_historico(**params))
+
+
+class CombustibleSinProduccionView(APIView):
+    permission_classes = [IsAuthenticated]
+
+    def get(self, request):
+        params = parse_consulta_params(request.query_params)
+        return Response(combustible_sin_produccion(**params))
 
 class ProduccionOperadorView(APIView):
 
