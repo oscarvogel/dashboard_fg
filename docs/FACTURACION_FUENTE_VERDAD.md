@@ -62,9 +62,16 @@ persiste junto al movimiento:
 - el total final del movimiento;
 - una moneda explícita.
 
-El esquema productivo inspeccionado no contiene la tabla `moneda` declarada en
-el modelo Django. Por lo tanto, no hay una fuente confirmada para etiquetar la
-moneda de cada total.
+El esquema productivo no contiene la tabla singular `moneda` declarada en el
+modelo Django: la tabla real se llama `monedas`. Contiene los catálogos ARS y
+USD, pero no existe una FK o columna que vincule una moneda con
+`tablero_produccion`, `produccion_mensual` o `tarifa_produccion`. Por lo tanto,
+el catálogo no permite etiquetar la moneda de cada total.
+
+Aunque `produccion_mensual.cotizacion` conserva valores distintos de 1 en
+algunos períodos, no es un snapshot del valor aplicado: el controlador sólo lo
+usa como indicador para decidir si debe reemplazarlo por el dólar ingresado
+manualmente al ejecutar. El valor manual efectivo tampoco queda persistido.
 
 ## Consecuencia para `facturacion_total`
 
