@@ -11,7 +11,7 @@ from django_filters import rest_framework as filters
 import django_filters as df                            # django-filter
 from django.contrib.auth import authenticate
 
-from django.db.models import Q, Sum
+from django.db.models import Prefetch, Q, Sum
 from django.db import models
 from django.contrib.auth.hashers import check_password as django_check_password
 
@@ -32,6 +32,8 @@ from .equipo_aliases import (
     IsEquipoAliasAdmin,
     confirm_equipo_alias,
     deactivate_equipo_alias,
+    normalize_alias,
+    score_equipo_match,
 )
 from .models import CargaCombustible, Empleado, Equipo, EquipoAlias, ProduccionMensual, RegistroProduccion, UnidadNegocio
 from .serializers import CargaCombustibleSerializer, EmpleadoSerializer, EquipoAliasConfirmSerializer, EquipoAliasSerializer, EquipoSerializer, LoginSerializer, RegistroProduccionDiarioSerializer, RegistroProduccionSerializer
@@ -1541,7 +1543,7 @@ class EquiposListSearchView(APIView):
       - Regla #1: NO se auto-crean Equipos. Solo se devuelven existentes.
       - Regla #4: si hay N>1 matches, el caller resuelve con su usuario final.
     """
-    permission_classes = [AllowAny]   # ajustar con auth JWT en el deploy
+    permission_classes = [IsAuthenticated]
 
     def get(self, request):
         try:
@@ -1550,36 +1552,63 @@ class EquiposListSearchView(APIView):
         except (TypeError, ValueError):
             return Response({'error': 'limit/offset invalid'}, status=400)
 
-        # Cargar todos los equipos con campos selectivos. Catalogo chico
-        # (decenas a cientos), por lo que el filtro se hace 100% Python.
-        rows = list(Equipo.objects.values(
-            'id', 'patente', 'detalle', 'codigo_fg', 'modelo_normalizado',
-            'aliases', 'ultima_sync_filtros', 'baja',
-        ).order_by('detalle'))
-
         q = request.query_params.get('q', '').strip()
-        if q:
-            ql = q.lower()
-            def match(row):
-                if ql in (row.get('detalle') or '').lower(): return True
-                if ql in (row.get('codigo_fg') or '').lower(): return True
-                if ql in (row.get('patente') or '').lower(): return True
-                if ql in (row.get('modelo_normalizado') or '').lower(): return True
-                for alias in (row.get('aliases') or []):
-                    if isinstance(alias, str) and ql in alias.lower(): return True
-                return False
-            filtered = [r for r in rows if match(r)]
-        else:
-            filtered = rows
+        normalized_query = normalize_alias(q).normalized if q else ''
+        equipos = Equipo.objects.prefetch_related(
+            Prefetch(
+                'alias_records',
+                queryset=EquipoAlias.objects.filter(activo=True).order_by(
+                    'alias_display', 'id'
+                ),
+                to_attr='active_alias_records',
+            )
+        )
+        ranked = []
+        for equipo in equipos:
+            aliases = [record.alias_display for record in equipo.active_alias_records]
+            match = (
+                score_equipo_match(
+                    equipo=equipo,
+                    normalized_query=normalized_query,
+                    aliases=aliases,
+                )
+                if q
+                else ('all', 0.0)
+            )
+            if match is None:
+                continue
+            match_type, match_score = match
+            ranked.append({
+                'id': equipo.id,
+                'patente': equipo.patente,
+                'detalle': equipo.detalle,
+                'codigo_fg': equipo.codigo_fg,
+                'modelo_normalizado': equipo.modelo_normalizado,
+                'aliases': aliases,
+                'ultima_sync_filtros': equipo.ultima_sync_filtros,
+                'baja': equipo.baja,
+                'match_type': match_type,
+                'match_score': match_score,
+            })
 
-        total = len(filtered)
-        window = filtered[offset:offset + limit]
+        ranked.sort(
+            key=lambda item: (
+                -item['match_score'],
+                item['patente'].casefold(),
+                item['id'],
+            )
+        )
+        total = len(ranked)
+        window = ranked[offset:offset + limit]
         return Response({
+            'query': q,
+            'normalized_query': normalized_query,
             'total': total,
             'limit': limit,
             'offset': offset,
             'count': len(window),
             'results': window,
+            'requires_confirmation': bool(q and total > 1),
         })
 
 

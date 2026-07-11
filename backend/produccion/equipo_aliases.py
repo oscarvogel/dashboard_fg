@@ -71,6 +71,34 @@ class IsEquipoAliasAdmin(BasePermission):
         )
 
 
+def score_equipo_match(*, equipo, normalized_query, aliases):
+    fields = (
+        ("patente", equipo.patente, 1.0, 0.8),
+        ("alias", None, 1.0, 0.8),
+        ("modelo_normalizado", equipo.modelo_normalizado, 0.95, 0.8),
+        ("codigo_fg", equipo.codigo_fg, 0.95, 0.8),
+        ("detalle", equipo.detalle, None, 0.6),
+    )
+    best = None
+    for match_type, value, exact_score, partial_score in fields:
+        values = aliases if match_type == "alias" else (value,)
+        for candidate in values:
+            if not candidate:
+                continue
+            try:
+                candidate_key = normalize_alias(candidate).normalized
+            except ValidationError:
+                continue
+            score = None
+            if exact_score is not None and candidate_key == normalized_query:
+                score = exact_score
+            elif normalized_query in candidate_key:
+                score = partial_score
+            if score is not None and (best is None or score > best[1]):
+                best = (match_type, score)
+    return best
+
+
 def normalize_alias(value):
     if not isinstance(value, str):
         raise ValidationError("El alias debe ser texto")

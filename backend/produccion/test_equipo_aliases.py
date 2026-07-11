@@ -457,3 +457,109 @@ class EquipoAliasApiTests(TestCase):
         self.assertTrue(first.data["changed"])
         self.assertEqual(second.status_code, 200)
         self.assertFalse(second.data["changed"])
+
+
+class EquipoSearchApiTests(TestCase):
+    @classmethod
+    def setUpTestData(cls):
+        cls.user = get_user_model().objects.create_user(username="reader")
+        cls.staff = get_user_model().objects.create_user(username="staff", is_staff=True)
+        cls.jcb_1 = Equipo.objects.create(
+            patente="PROCE-Nº2",
+            detalle="Procesador JCB JS220F - Nº 1",
+            codigo_fg="JCB-01",
+            modelo_normalizado="JCB JS220F",
+        )
+        cls.jcb_2 = Equipo.objects.create(
+            patente="PROCE-Nº3",
+            detalle="Procesador JCB JS220F - Nº 2",
+            codigo_fg="JCB-02",
+            modelo_normalizado="JCB JS220F",
+        )
+        cls.ponsse = Equipo.objects.create(
+            patente="FORWA-Nº5",
+            detalle="Forwarder PONSSE BUFFALO KING - Nº 1",
+            modelo_normalizado="Ponsse Buffalo King",
+        )
+        confirm_equipo_alias(
+            equipo=cls.jcb_1,
+            alias="JS220",
+            origen=EquipoAlias.Origen.MANUAL,
+            confirmado_por=cls.staff,
+        )
+
+    def setUp(self):
+        self.client = APIClient()
+
+    def search(self, query):
+        return self.client.get("/api/equipos/", {"q": query})
+
+    def test_search_without_authentication_returns_401(self):
+        self.assertEqual(self.search("JCB").status_code, 401)
+
+    def test_searches_patent_detail_model_and_active_alias(self):
+        self.client.force_authenticate(self.user)
+        cases = (
+            ("PROCE-Nº2", self.jcb_1.id, "patente", 1.0),
+            ("BUFFALO", self.ponsse.id, "modelo_normalizado", 0.8),
+            ("Ponsse Buffalo King", self.ponsse.id, "modelo_normalizado", 0.95),
+            ("JS 220", self.jcb_1.id, "alias", 1.0),
+        )
+
+        for query, expected_id, match_type, score in cases:
+            with self.subTest(query=query):
+                response = self.search(query)
+                self.assertEqual(response.status_code, 200)
+                self.assertEqual(response.data["results"][0]["id"], expected_id)
+                self.assertEqual(response.data["results"][0]["match_type"], match_type)
+                self.assertEqual(response.data["results"][0]["match_score"], score)
+
+    def test_exact_matches_rank_before_partial_matches_deterministically(self):
+        exact = Equipo.objects.create(
+            patente="JCB",
+            detalle="Camion de apoyo",
+        )
+        self.client.force_authenticate(self.user)
+
+        response = self.search("JCB")
+
+        self.assertEqual(response.data["results"][0]["id"], exact.id)
+        self.assertEqual(response.data["results"][0]["match_type"], "patente")
+        self.assertEqual(response.data["results"][0]["match_score"], 1.0)
+        remaining = response.data["results"][1:]
+        self.assertEqual(
+            [(item["patente"], item["id"]) for item in remaining],
+            sorted((item["patente"], item["id"]) for item in remaining),
+        )
+
+    def test_multiple_reasonable_matches_require_confirmation(self):
+        self.client.force_authenticate(self.user)
+
+        response = self.search("JCB JS220F")
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.data["total"], 2)
+        self.assertTrue(response.data["requires_confirmation"])
+
+    def test_inactive_alias_is_not_searchable_or_returned(self):
+        record = confirm_equipo_alias(
+            equipo=self.ponsse,
+            alias="Máquina Azul",
+            origen=EquipoAlias.Origen.MANUAL,
+            confirmado_por=self.staff,
+        ).alias
+        deactivate_equipo_alias(alias_record=record)
+        self.client.force_authenticate(self.user)
+
+        response = self.search("Máquina Azul")
+
+        self.assertEqual(response.data["total"], 0)
+
+    def test_query_count_does_not_grow_with_number_of_equipment(self):
+        self.client.force_authenticate(self.user)
+
+        with self.assertNumQueries(2):
+            response = self.search("JCB")
+
+        self.assertEqual(response.status_code, 200)
+        self.assertGreaterEqual(response.data["total"], 2)
