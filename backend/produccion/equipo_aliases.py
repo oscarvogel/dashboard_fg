@@ -147,12 +147,32 @@ def _conflict_candidates(normalized, exclude_equipo_id=None):
     ]
 
 
-def sync_equipo_alias_cache(equipo_id):
+def sync_equipo_alias_cache(equipo_id, removed_normalized_keys=()):
     aliases = list(
         EquipoAlias.objects.filter(equipo_id=equipo_id, activo=True)
         .order_by("alias_display", "id")
         .values_list("alias_display", flat=True)
     )
+    active_keys = {
+        normalize_alias(alias).normalized
+        for alias in aliases
+    }
+    removed_keys = set(removed_normalized_keys)
+    legacy_aliases = Equipo.objects.filter(pk=equipo_id).values_list(
+        "aliases", flat=True
+    ).get() or []
+    for legacy_alias in legacy_aliases:
+        if not isinstance(legacy_alias, str):
+            continue
+        try:
+            legacy = normalize_alias(legacy_alias)
+        except ValidationError:
+            continue
+        if legacy.normalized in active_keys or legacy.normalized in removed_keys:
+            continue
+        aliases.append(legacy.display)
+        active_keys.add(legacy.normalized)
+    aliases.sort(key=lambda value: (value.casefold(), value))
     Equipo.objects.filter(pk=equipo_id).update(aliases=aliases)
     return aliases
 
@@ -248,7 +268,10 @@ def deactivate_equipo_alias(*, alias_record):
         locked.activo = False
         locked.alias_activo_key = None
         locked.save(update_fields=("activo", "alias_activo_key", "updated_at"))
-        sync_equipo_alias_cache(locked.equipo_id)
+        sync_equipo_alias_cache(
+            locked.equipo_id,
+            removed_normalized_keys=(locked.alias_normalizado,),
+        )
     alias_record.activo = locked.activo
     alias_record.alias_activo_key = locked.alias_activo_key
     return AliasDeactivationResult(alias=locked, changed=changed)

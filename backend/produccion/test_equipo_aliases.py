@@ -146,6 +146,14 @@ class EquipoAliasServiceTests(TestCase):
         self.equipo_1.refresh_from_db()
         self.assertEqual(self.equipo_1.aliases, ["Procesadór- JCB"])
 
+    def test_confirmation_preserves_unimported_legacy_json_aliases(self):
+        Equipo.objects.filter(pk=self.equipo_1.pk).update(aliases=["Legacy Alias"])
+
+        self.confirm(alias="JCB")
+
+        self.equipo_1.refresh_from_db()
+        self.assertEqual(self.equipo_1.aliases, ["JCB", "Legacy Alias"])
+
     def test_same_equipment_confirmation_is_idempotent(self):
         first = self.confirm()
         second = self.confirm(alias=" j c b ")
