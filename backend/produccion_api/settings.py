@@ -50,6 +50,7 @@ INSTALLED_APPS = [
     'produccion',
     'mantenimiento',
     'forestal_bot',
+    'incidencias',
 ]
 
 MIDDLEWARE = [
