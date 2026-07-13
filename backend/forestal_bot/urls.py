@@ -1,6 +1,8 @@
 from django.urls import path
 
 from forestal_bot.views import (
+    DailySummaryDetailView,
+    DailySummaryListCreateView,
     WhatsAppGroupDetailView,
     WhatsAppGroupListCreateView,
     WhatsAppMessageCreateView,
@@ -11,6 +13,16 @@ from forestal_bot.views import (
 app_name = "forestal_bot"
 
 urlpatterns = [
+    path(
+        "daily-summaries/",
+        DailySummaryListCreateView.as_view(),
+        name="daily-summary-list",
+    ),
+    path(
+        "daily-summaries/<int:pk>/",
+        DailySummaryDetailView.as_view(),
+        name="daily-summary-detail",
+    ),
     path(
         "whatsapp/owner/messages/",
         WhatsAppOwnerMessageListView.as_view(),

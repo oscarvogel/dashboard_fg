@@ -11,6 +11,18 @@ TRANSCRIPTION_STATUS_CHOICES = [
     ("failed", "Fallida"),
 ]
 IMAGE_ANALYSIS_STATUS_CHOICES = TRANSCRIPTION_STATUS_CHOICES
+DAILY_SUMMARY_STATUS_CHOICES = [
+    ("generated", "Generado"),
+    ("partial", "Entrega parcial"),
+    ("sent", "Enviado"),
+    ("failed", "Fallido"),
+]
+DAILY_SUMMARY_DELIVERY_STATUS_CHOICES = [
+    ("pending", "Pendiente"),
+    ("sent", "Enviado"),
+    ("failed", "Fallido"),
+    ("skipped_duplicate", "Duplicado omitido"),
+]
 
 
 class WhatsAppGroup(models.Model):
@@ -122,5 +134,81 @@ class WhatsAppMessage(models.Model):
             models.UniqueConstraint(
                 fields=["account_id", "group_jid", "message_id"],
                 name="forestal_bot_whatsapp_message_identity_uniq",
+            )
+        ]
+
+
+class DailySummaryRun(models.Model):
+    idempotency_key = models.CharField(max_length=128, unique=True)
+    operational_date = models.DateField(db_index=True)
+    generated_at = models.DateTimeField()
+    status = models.CharField(max_length=16, choices=DAILY_SUMMARY_STATUS_CHOICES)
+    consolidated_text = models.TextField(validators=[MaxLengthValidator(50000)])
+    spoken_script = models.TextField(
+        blank=True,
+        default="",
+        validators=[MaxLengthValidator(50000)],
+    )
+    total_groups = models.PositiveIntegerField(default=0)
+    total_messages = models.PositiveIntegerField(default=0)
+    generator_version = models.CharField(max_length=100, blank=True, default="")
+    source = models.CharField(max_length=100, default="openclaw")
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        ordering = ["-operational_date", "-generated_at"]
+
+
+class DailySummaryGroup(models.Model):
+    run = models.ForeignKey(
+        DailySummaryRun,
+        on_delete=models.CASCADE,
+        related_name="groups",
+    )
+    group_key = models.CharField(max_length=100)
+    group_name = models.CharField(max_length=255)
+    message_count = models.PositiveIntegerField(default=0)
+    summary_text = models.TextField(validators=[MaxLengthValidator(30000)])
+    no_updates = models.BooleanField(default=False)
+    position = models.PositiveIntegerField(default=0)
+
+    class Meta:
+        ordering = ["position", "id"]
+        constraints = [
+            models.UniqueConstraint(
+                fields=["run", "group_key"],
+                name="forestal_bot_daily_summary_group_uniq",
+            )
+        ]
+
+
+class DailySummaryDelivery(models.Model):
+    run = models.ForeignKey(
+        DailySummaryRun,
+        on_delete=models.CASCADE,
+        related_name="deliveries",
+    )
+    channel = models.CharField(max_length=32)
+    recipient_name = models.CharField(max_length=100)
+    status = models.CharField(
+        max_length=32,
+        choices=DAILY_SUMMARY_DELIVERY_STATUS_CHOICES,
+    )
+    attempted_at = models.DateTimeField(null=True, blank=True)
+    delivered_at = models.DateTimeField(null=True, blank=True)
+    error = models.TextField(
+        blank=True,
+        default="",
+        validators=[MaxLengthValidator(1000)],
+    )
+    external_id = models.CharField(max_length=255, blank=True, default="")
+
+    class Meta:
+        ordering = ["channel", "recipient_name"]
+        constraints = [
+            models.UniqueConstraint(
+                fields=["run", "channel", "recipient_name"],
+                name="forestal_bot_daily_summary_delivery_uniq",
             )
         ]
