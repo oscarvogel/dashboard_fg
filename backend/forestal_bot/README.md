@@ -320,3 +320,74 @@ El POST requiere `account_id`, `jid` y `name`; acepta `description` y `active`. 
 El JSONL local es el spool confiable: OpenClaw escribe cada mensaje alli primero y luego intenta sincronizarlo con esta API. Por eso, una falla temporal de la API no debe hacer perder el evento que ya quedo persistido localmente.
 
 OpenClaw consume este contrato de API, pero no lo disena ni lo modifica. Los cambios del contrato pertenecen a este backend; esta documentacion no contiene instrucciones para cambiar OpenClaw.
+
+## Resumenes operativos diarios
+
+El historial centralizado de los resumenes enviados se registra con el mismo
+Bearer token de OpenClaw:
+
+```http
+POST /api/forestal-bot/daily-summaries/
+Authorization: Bearer <token>
+Content-Type: application/json
+```
+
+Ejemplo sanitizado:
+
+```json
+{
+  "idempotency_key": "2026-07-13:consolidated",
+  "operational_date": "2026-07-13",
+  "generated_at": "2026-07-13T21:00:00-03:00",
+  "status": "sent",
+  "consolidated_text": "Resumen operativo diario...",
+  "spoken_script": "Guion utilizado para el audio...",
+  "total_groups": 1,
+  "total_messages": 4,
+  "generator_version": "daily-operational-v1",
+  "source": "openclaw",
+  "groups": [
+    {
+      "group_key": "mantenimiento",
+      "group_name": "Mantenimiento",
+      "message_count": 4,
+      "summary_text": "Se informaron novedades de mantenimiento.",
+      "no_updates": false,
+      "position": 0
+    }
+  ],
+  "deliveries": [
+    {
+      "channel": "whatsapp",
+      "recipient_name": "jose",
+      "status": "sent",
+      "attempted_at": "2026-07-13T21:02:00-03:00",
+      "delivered_at": "2026-07-13T21:02:01-03:00",
+      "error": "",
+      "external_id": ""
+    }
+  ]
+}
+```
+
+`idempotency_key` es unica. El primer POST responde `201` con `created: true`;
+un reintento responde `200` con `created: false` y actualiza la misma ejecucion.
+Las secciones por grupo se reemplazan por el estado completo recibido y las
+entregas se actualizan por `channel + recipient_name`. Si una actualizacion no
+incluye entregas ya registradas, estas se conservan.
+
+Los totales deben coincidir con las secciones: `total_groups` debe ser igual a
+la cantidad de grupos y `total_messages` a la suma de `message_count`.
+
+La consulta usa las mismas credenciales:
+
+```http
+GET /api/forestal-bot/daily-summaries/?date_from=2026-07-01&date_to=2026-07-31&group_key=mantenimiento&status=sent&channel=whatsapp&limit=100
+GET /api/forestal-bot/daily-summaries/1/
+Authorization: Bearer <token>
+```
+
+Los filtros son opcionales. `limit` debe ser positivo, vale `100` por defecto y
+se limita a `500`. No se guardan telefonos, correos, JIDs, tokens, rutas locales,
+audio ni HTML. `recipient_name` debe ser solamente una referencia logica. Los
+errores se limitan a 1.000 caracteres y rechazan trazas o marcadores de secretos.

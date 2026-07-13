@@ -2,7 +2,30 @@ from datetime import datetime
 
 from rest_framework import serializers
 
-from forestal_bot.models import WhatsAppGroup, WhatsAppMessage
+from forestal_bot.models import (
+    DailySummaryDelivery,
+    DailySummaryGroup,
+    DailySummaryRun,
+    WhatsAppGroup,
+    WhatsAppMessage,
+)
+
+
+FORBIDDEN_ERROR_MARKERS = (
+    "traceback (most recent call last)",
+    "authorization: bearer",
+    "openclaw_ingest_token",
+    "secret_key",
+    "database_url",
+)
+
+
+def validate_sanitized_error(value):
+    if any(marker in value.lower() for marker in FORBIDDEN_ERROR_MARKERS):
+        raise serializers.ValidationError(
+            "Provide a short technical description without traces or secrets."
+        )
+    return value
 
 
 class ExplicitTimezoneDateTimeField(serializers.DateTimeField):
@@ -71,34 +94,10 @@ class WhatsAppMessageSerializer(serializers.ModelSerializer):
         return attrs
 
     def validate_transcription_error(self, value):
-        forbidden_markers = (
-            "traceback (most recent call last)",
-            "authorization: bearer",
-            "openclaw_ingest_token",
-            "secret_key",
-            "database_url",
-        )
-        normalized = value.lower()
-        if any(marker in normalized for marker in forbidden_markers):
-            raise serializers.ValidationError(
-                "Provide a short technical description without traces or secrets."
-            )
-        return value
+        return validate_sanitized_error(value)
 
     def validate_image_analysis_error(self, value):
-        forbidden_markers = (
-            "traceback (most recent call last)",
-            "authorization: bearer",
-            "openclaw_ingest_token",
-            "secret_key",
-            "database_url",
-        )
-        normalized = value.lower()
-        if any(marker in normalized for marker in forbidden_markers):
-            raise serializers.ValidationError(
-                "Provide a short technical description without traces or secrets."
-            )
-        return value
+        return validate_sanitized_error(value)
 
     class Meta:
         model = WhatsAppMessage
@@ -145,3 +144,89 @@ class WhatsAppOwnerMessageSerializer(WhatsAppMessageSerializer):
             "image_analyzed_at",
         )
         read_only_fields = fields
+
+
+class DailySummaryGroupSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = DailySummaryGroup
+        fields = (
+            "group_key",
+            "group_name",
+            "message_count",
+            "summary_text",
+            "no_updates",
+            "position",
+        )
+
+
+class DailySummaryDeliverySerializer(serializers.ModelSerializer):
+    def validate_error(self, value):
+        return validate_sanitized_error(value)
+
+    class Meta:
+        model = DailySummaryDelivery
+        fields = (
+            "channel",
+            "recipient_name",
+            "status",
+            "attempted_at",
+            "delivered_at",
+            "error",
+            "external_id",
+        )
+
+
+class DailySummaryRunSerializer(serializers.ModelSerializer):
+    idempotency_key = serializers.CharField(max_length=128, validators=[])
+    groups = DailySummaryGroupSerializer(many=True)
+    deliveries = DailySummaryDeliverySerializer(many=True, required=False)
+
+    class Meta:
+        model = DailySummaryRun
+        fields = (
+            "id",
+            "idempotency_key",
+            "operational_date",
+            "generated_at",
+            "status",
+            "consolidated_text",
+            "spoken_script",
+            "total_groups",
+            "total_messages",
+            "generator_version",
+            "source",
+            "groups",
+            "deliveries",
+            "created_at",
+            "updated_at",
+        )
+        read_only_fields = ("id", "created_at", "updated_at")
+
+    def validate_groups(self, value):
+        keys = [item["group_key"] for item in value]
+        if not keys:
+            raise serializers.ValidationError("At least one group is required.")
+        if len(keys) != len(set(keys)):
+            raise serializers.ValidationError("group_key values must be unique.")
+        return value
+
+    def validate(self, attrs):
+        groups = attrs.get("groups", [])
+        if attrs.get("total_groups") != len(groups):
+            raise serializers.ValidationError(
+                {"total_groups": ["Must match the number of groups."]}
+            )
+        message_total = sum(group["message_count"] for group in groups)
+        if attrs.get("total_messages") != message_total:
+            raise serializers.ValidationError(
+                {"total_messages": ["Must match the sum of group message counts."]}
+            )
+        return attrs
+
+    def validate_deliveries(self, value):
+        identities = [(item["channel"], item["recipient_name"]) for item in value]
+        if len(identities) != len(set(identities)):
+            raise serializers.ValidationError(
+                "channel and recipient_name pairs must be unique."
+            )
+        return value
