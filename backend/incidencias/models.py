@@ -9,7 +9,12 @@ class IncidenciaEquipo(models.Model):
         INTERMITENTE = "intermitente", "Intermitente"
         DESCONOCIDO = "desconocido", "Desconocido"
 
-    equipo = models.ForeignKey("produccion.Equipo", on_delete=models.PROTECT, related_name="incidencias")
+    equipo = models.ForeignKey(
+        "produccion.Equipo",
+        on_delete=models.PROTECT,
+        related_name="incidencias",
+        db_constraint=False,
+    )
     tipo = models.CharField(max_length=80, db_index=True)
     descripcion = models.TextField()
     ubicacion = models.CharField(max_length=150, blank=True)
@@ -33,7 +38,12 @@ class IncidenciaEquipo(models.Model):
 
 class EventoEstadoEquipo(models.Model):
     incidencia = models.ForeignKey(IncidenciaEquipo, on_delete=models.PROTECT, related_name="eventos")
-    equipo = models.ForeignKey("produccion.Equipo", on_delete=models.PROTECT, related_name="eventos_estado")
+    equipo = models.ForeignKey(
+        "produccion.Equipo",
+        on_delete=models.PROTECT,
+        related_name="eventos_estado",
+        db_constraint=False,
+    )
     estado_anterior = models.CharField(max_length=20, choices=IncidenciaEquipo.Estado.choices)
     estado_nuevo = models.CharField(max_length=20, choices=IncidenciaEquipo.Estado.choices)
     fecha_hora = models.DateTimeField(db_index=True)
@@ -74,7 +84,12 @@ class IncidenciaPersonal(models.Model):
         NO_JUSTIFICADA = "no_justificada", "No justificada"
         NO_APLICA = "no_aplica", "No aplica"
 
-    persona = models.ForeignKey("produccion.Empleado", on_delete=models.PROTECT, related_name="incidencias")
+    persona = models.ForeignKey(
+        "produccion.Empleado",
+        on_delete=models.PROTECT,
+        related_name="incidencias",
+        db_constraint=False,
+    )
     tipo = models.CharField(max_length=25, choices=Tipo.choices, db_index=True)
     fecha = models.DateField(db_index=True)
     hora_inicio = models.TimeField(null=True, blank=True)
