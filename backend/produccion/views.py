@@ -801,10 +801,6 @@ class CargasCombustibleView(APIView):
     def get(self, request):
         start_date = request.GET.get('start_date')
         end_date = request.GET.get('end_date')
-        un_id = request.GET.get('un_id')
-        movil_id = request.GET.get('movil_id')
-        # Nuevo parámetro: lugar de carga (id)
-        lugar_id = request.GET.get('lugar_id')
 
         if not start_date or not end_date:
             return Response({"error": "start_date y end_date son requeridos"}, status=400)
@@ -815,31 +811,69 @@ class CargasCombustibleView(APIView):
         except ValueError:
             return Response({"error": "Formato de fecha inválido. Usa YYYY-MM-DD."}, status=400)
 
-        # Filtrar cargas en el rango de fechas
+        if start_date > end_date:
+            return Response({"end_date": ["Debe ser igual o posterior a start_date."]}, status=400)
+
+        parsed_params = {}
+        for name, default in (("page", 1), ("page_size", 50)):
+            raw_value = request.GET.get(name, default)
+            try:
+                value = int(raw_value)
+            except (TypeError, ValueError):
+                return Response({name: ["Debe ser un entero positivo."]}, status=400)
+            if value <= 0:
+                return Response({name: ["Debe ser un entero positivo."]}, status=400)
+            parsed_params[name] = value
+
+        for name in ("un_id", "movil_id", "lugar_id"):
+            raw_value = request.GET.get(name)
+            if raw_value in (None, ""):
+                parsed_params[name] = None
+                continue
+            try:
+                value = int(raw_value)
+            except (TypeError, ValueError):
+                return Response({name: ["Debe ser un identificador entero positivo."]}, status=400)
+            if value <= 0:
+                return Response({name: ["Debe ser un identificador entero positivo."]}, status=400)
+            parsed_params[name] = value
+
+        page = parsed_params["page"]
+        page_size = min(parsed_params["page_size"], 200)
+
         query = CargaCombustible.objects.filter(fecha__range=[start_date, end_date])
 
-        if un_id:
-            query = query.filter(unidad_negocio_id=un_id)
-        if movil_id:
-            query = query.filter(equipo_id=movil_id)
-        if lugar_id:
-            query = query.filter(lugar_carga_id=lugar_id)
+        if parsed_params["un_id"]:
+            query = query.filter(unidad_negocio_id=parsed_params["un_id"])
+        if parsed_params["movil_id"]:
+            query = query.filter(equipo_id=parsed_params["movil_id"])
+        if parsed_params["lugar_id"]:
+            query = query.filter(lugar_carga_id=parsed_params["lugar_id"])
 
-        # Prefetch o select_related para optimizar consultas
-        query = query.select_related('equipo', 'unidad_negocio', 'lugar_carga')
+        patente = request.GET.get("patente")
+        if patente is not None:
+            query = query.filter(equipo__patente__iexact=patente.strip())
 
-        # Calcular totales por tipo_mov
+        query = query.select_related(
+            'equipo', 'unidad_negocio', 'lugar_carga'
+        ).order_by('fecha', 'id')
+
         totales = query.values('tipo_mov').annotate(total_litros=Sum('litros')).order_by('tipo_mov')
         totales_dict = {}
         for item in totales:
             tipo = 'Ingreso' if item['tipo_mov'] == 'I' else 'Egreso'
             totales_dict[tipo] = float(item['total_litros'])
 
-        # Serializar datos detallados
-        serializer = CargaCombustibleSerializer(query, many=True)
+        count = query.count()
+        total_pages = (count + page_size - 1) // page_size
+        offset = (page - 1) * page_size
+        serializer = CargaCombustibleSerializer(query[offset:offset + page_size], many=True)
 
-        # Respuesta final
         return Response({
+            "count": count,
+            "total_pages": total_pages,
+            "current_page": page,
+            "page_size": page_size,
             "results": serializer.data,
             "totales": {
                 "Ingreso": totales_dict.get("Ingreso", 0.0),

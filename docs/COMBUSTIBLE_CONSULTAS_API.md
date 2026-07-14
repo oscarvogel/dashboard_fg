@@ -2,6 +2,31 @@
 
 Los tres endpoints son `GET`, de solo lectura y requieren el mismo JWT Bearer que el resto de la API. No modifican las respuestas de endpoints existentes ni requieren cambios de esquema.
 
+## `GET /api/cargas-combustible/`
+
+Devuelve el detalle paginado de cargas y conserva los totales de ingreso y egreso calculados sobre todo el conjunto filtrado.
+
+- `start_date=YYYY-MM-DD` y `end_date=YYYY-MM-DD`: obligatorios e inclusivos. Un formato inválido o un rango invertido devuelve `400`.
+- `page`: entero positivo, default `1`. Un valor inválido o menor o igual a cero devuelve `400`.
+- `page_size`: entero positivo, default `50`. Un valor mayor a `200` se limita a `200`; un valor inválido o menor o igual a cero devuelve `400`.
+- `un_id`, `movil_id` y `lugar_id`: identificadores enteros positivos opcionales. `movil_id` representa exclusivamente `Equipo.id`/`idmovil`; un texto devuelve `400`.
+- `patente`: parámetro independiente, normalizado con trim y comparado de forma exacta sin distinguir mayúsculas y minúsculas contra `Equipo.patente`. No hace búsqueda parcial ni resuelve aliases.
+
+Los filtros se aplican antes de contar, totalizar y paginar. El orden es determinista por `fecha` y luego `id`. Una página posterior a la última devuelve `200` con `results: []` y conserva `count`, `total_pages`, `current_page`, `page_size` y `totales`.
+
+```json
+{
+  "count": 1013,
+  "total_pages": 21,
+  "current_page": 1,
+  "page_size": 50,
+  "results": [],
+  "totales": {"Ingreso": 0, "Egreso": 0}
+}
+```
+
+Los errores de parámetros responden `400`; una petición sin JWT válido responde `401` o `403`, según el autenticador y los permisos configurados.
+
 ## Parámetros comunes
 
 - `inicio=YYYY-MM-DD` y `fin=YYYY-MM-DD`: obligatorios, inclusivos.
