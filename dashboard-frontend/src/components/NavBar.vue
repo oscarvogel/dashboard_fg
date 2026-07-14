@@ -339,6 +339,14 @@ const menuItems = [
 // Submenú para Control Operativo
 const controlOperativoSubmenu = [
   {
+    name: 'Incidencias',
+    path: '/incidencias-operativas',
+    xmlns: 'http://www.w3.org/2000/svg',
+    viewBox: '0 0 24 24',
+    iconClass: 'h-4 w-4 text-amber-300',
+    iconPath: 'M12 9v3m0 4h.01M10.3 3.7L2.6 17a2 2 0 001.7 3h15.4a2 2 0 001.7-3L13.7 3.7a2 2 0 00-3.4 0z'
+  },
+  {
     name: 'Mensajes WhatsApp',
     path: '/mensajes-whatsapp',
     xmlns: 'http://www.w3.org/2000/svg',

@@ -10,6 +10,8 @@ horaria.
 - `POST /api/incidencias/equipos/<id>/eventos/`: agrega una transicion inmutable.
 - `POST /api/incidencias/equipos/<id>/cerrar/`: registra el primer retorno operativo y cierra.
 - `POST/GET /api/incidencias/personas/`: crea o consulta incidencias de personal.
+- `POST /api/incidencias/personas/<id>/cerrar/`: cierra una incidencia de personal confirmada.
+- `GET /api/incidencias/dashboard/`: consulta autenticada para el dashboard.
 - `GET /api/incidencias/horas-paradas/?inicio=<ISO>&fin=<ISO>&equipo_id=<id>`.
 - `GET /api/incidencias/por-persona/?inicio=YYYY-MM-DD&fin=YYYY-MM-DD`.
 - `GET /api/incidencias/resumen-mensual/?periodo=YYYY-MM`.
@@ -20,3 +22,7 @@ cambio proveniente de WhatsApp debe enviar un `source_message_id`; la base
 rechaza IDs repetidos. Las horas paradas se reconstruyen desde eventos
 confirmados y se unen por equipo, de modo que incidencias superpuestas no suman
 dos veces el mismo intervalo.
+
+Las incidencias nuevas de equipos y personal requieren `grupo_origen_key` y
+`grupo_origen_nombre`. Estos campos permiten seguimiento en el grupo correcto,
+filtros e informes sin depender de texto libre.

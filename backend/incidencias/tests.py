@@ -32,6 +32,8 @@ class IncidenciasApiTests(TestCase):
             "estado_actual": "parado",
             "inicio": inicio,
             "mensaje_origen": "El forwarder no arranca",
+            "grupo_origen_key": "mantenimiento",
+            "grupo_origen_nombre": "Mantenimiento",
             "source_message_id": source,
             "fuente": "whatsapp",
         }, format="json")
@@ -113,6 +115,8 @@ class IncidenciasApiTests(TestCase):
             "estado_justificacion": "pendiente",
             "mensaje_origen": "Ana llega tarde",
             "source_message_id": "personal-1",
+            "grupo_origen_key": "full-tree-arauco",
+            "grupo_origen_nombre": "Full Tree ARAUCO",
         }, format="json")
         self.assertEqual(response.status_code, 201)
         self.assertEqual(response.data["duracion_minutos"], 30)
@@ -122,6 +126,20 @@ class IncidenciasApiTests(TestCase):
         self.assertEqual(resumen.status_code, 200)
         self.assertEqual(resumen.data["llegadas_tarde"], 1)
         self.assertEqual(resumen.data["retiros_anticipados"], 0)
+
+        cierre = self.client.post(f"/api/incidencias/personas/{response.data['id']}/cerrar/", {
+            "fecha_hora": "2026-07-03T12:00:00-03:00",
+            "source_message_id": "personal-close-1",
+            "mensaje": "Cobertura confirmada",
+        }, format="json")
+        self.assertEqual(cierre.status_code, 200)
+        self.assertFalse(cierre.data["abierta"])
+
+    def test_grupo_origen_se_expone_y_filtra(self):
+        self.assertEqual(self._crear_equipo().status_code, 201)
+        response = self.client.get("/api/incidencias/equipos/", {"grupo_origen_key": "mantenimiento"})
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.data[0]["grupo_origen_nombre"], "Mantenimiento")
 
     def test_resuelve_ids_por_nombre_o_referencia(self):
         equipos = self.client.get("/api/incidencias/resolver/", {"tipo": "equipo", "q": "Forwarder"})

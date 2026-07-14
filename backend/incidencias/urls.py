@@ -1,7 +1,7 @@
 from django.urls import path
 
 from .views import (
-    CerrarIncidenciaEquipoView, EventoEstadoEquipoCreateView, HorasParadasView,
+    CerrarIncidenciaEquipoView, CerrarIncidenciaPersonalView, DashboardIncidenciasView, EventoEstadoEquipoCreateView, HorasParadasView,
     IncidenciaEquipoListCreateView, IncidenciaPersonalListCreateView,
     IncidenciasPorPersonaView, ResolverReferenciaView, ResumenMensualView,
 )
@@ -12,6 +12,8 @@ urlpatterns = [
     path("equipos/<int:pk>/eventos/", EventoEstadoEquipoCreateView.as_view(), name="evento-create"),
     path("equipos/<int:pk>/cerrar/", CerrarIncidenciaEquipoView.as_view(), name="equipo-close"),
     path("personas/", IncidenciaPersonalListCreateView.as_view(), name="persona-list-create"),
+    path("personas/<int:pk>/cerrar/", CerrarIncidenciaPersonalView.as_view(), name="persona-close"),
+    path("dashboard/", DashboardIncidenciasView.as_view(), name="dashboard"),
     path("horas-paradas/", HorasParadasView.as_view(), name="horas-paradas"),
     path("por-persona/", IncidenciasPorPersonaView.as_view(), name="por-persona"),
     path("resumen-mensual/", ResumenMensualView.as_view(), name="resumen-mensual"),
