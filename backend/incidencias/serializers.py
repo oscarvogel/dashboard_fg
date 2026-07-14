@@ -22,7 +22,7 @@ class IncidenciaEquipoSerializer(serializers.ModelSerializer):
 
     class Meta:
         model = IncidenciaEquipo
-        fields = ["id", "equipo", "equipo_nombre", "equipo_referencia", "tipo", "descripcion", "ubicacion", "estado_actual", "inicio", "finalizacion", "duracion_minutos", "duracion_parcial", "abierta", "mensaje_origen", "observaciones", "diagnostico", "solucion", "responsable", "source_message_id", "fuente", "eventos", "creada_en", "actualizada_en"]
+        fields = ["id", "equipo", "equipo_nombre", "equipo_referencia", "tipo", "descripcion", "ubicacion", "estado_actual", "inicio", "finalizacion", "duracion_minutos", "duracion_parcial", "abierta", "mensaje_origen", "grupo_origen_key", "grupo_origen_nombre", "observaciones", "diagnostico", "solucion", "responsable", "source_message_id", "fuente", "eventos", "creada_en", "actualizada_en"]
         read_only_fields = ["id", "finalizacion", "abierta", "creada_en", "actualizada_en"]
 
     def validate_source_message_id(self, value):
@@ -61,7 +61,7 @@ class IncidenciaPersonalSerializer(serializers.ModelSerializer):
     class Meta:
         model = IncidenciaPersonal
         fields = "__all__"
-        read_only_fields = ["id", "creada_en", "actualizada_en"]
+        read_only_fields = ["id", "abierta", "finalizacion", "creada_en", "actualizada_en"]
 
     def validate(self, attrs):
         inicio = attrs.get("hora_inicio")
@@ -86,6 +86,13 @@ class CierreIncidenciaSerializer(serializers.Serializer):
         if EventoEstadoEquipo.objects.filter(source_message_id=value).exists():
             raise serializers.ValidationError("Ya existe un evento para este mensaje.")
         return value
+
+
+class CierreIncidenciaPersonalSerializer(serializers.Serializer):
+    fecha_hora = serializers.DateTimeField()
+    source_message_id = serializers.CharField(max_length=191)
+    mensaje = serializers.CharField()
+    observaciones = serializers.CharField(required=False, allow_blank=True)
 
 
 class PeriodoSerializer(serializers.Serializer):

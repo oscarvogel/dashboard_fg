@@ -3,6 +3,7 @@ from collections import defaultdict
 from django.db.models import Count, Q, Sum
 from django.shortcuts import get_object_or_404
 from rest_framework import serializers, status
+from rest_framework.permissions import IsAuthenticated
 from rest_framework.response import Response
 from rest_framework.views import APIView
 
@@ -11,7 +12,7 @@ from produccion.models import Empleado, Equipo
 
 from .models import IncidenciaEquipo, IncidenciaPersonal
 from .serializers import (
-    CierreIncidenciaSerializer, EventoEstadoEquipoSerializer,
+    CierreIncidenciaPersonalSerializer, CierreIncidenciaSerializer, EventoEstadoEquipoSerializer,
     IncidenciaEquipoSerializer, IncidenciaPersonalSerializer, PeriodoSerializer,
 )
 from .services import agregar_evento, cerrar_incidencia, limites_mes, resumen_horas_paradas
@@ -25,7 +26,7 @@ class BotAPIView(APIView):
 class IncidenciaEquipoListCreateView(BotAPIView):
     def get(self, request):
         qs = IncidenciaEquipo.objects.select_related("equipo").prefetch_related("eventos")
-        for param, field in (("equipo_id", "equipo_id"), ("tipo", "tipo"), ("estado", "estado_actual"), ("abierta", "abierta")):
+        for param, field in (("equipo_id", "equipo_id"), ("tipo", "tipo"), ("estado", "estado_actual"), ("abierta", "abierta"), ("grupo_origen_key", "grupo_origen_key")):
             value = request.query_params.get(param)
             if value is not None:
                 if param == "abierta":
@@ -71,9 +72,11 @@ class CerrarIncidenciaEquipoView(BotAPIView):
 class IncidenciaPersonalListCreateView(BotAPIView):
     def get(self, request):
         qs = IncidenciaPersonal.objects.select_related("persona")
-        for param, field in (("persona_id", "persona_id"), ("tipo", "tipo"), ("estado", "estado_justificacion")):
+        for param, field in (("persona_id", "persona_id"), ("tipo", "tipo"), ("estado", "estado_justificacion"), ("grupo_origen_key", "grupo_origen_key")):
             if request.query_params.get(param):
                 qs = qs.filter(**{field: request.query_params[param]})
+        if request.query_params.get("abierta") is not None:
+            qs = qs.filter(abierta=serializers.BooleanField().run_validation(request.query_params["abierta"]))
         if request.query_params.get("inicio"):
             qs = qs.filter(fecha__gte=request.query_params["inicio"])
         if request.query_params.get("fin"):
@@ -85,6 +88,38 @@ class IncidenciaPersonalListCreateView(BotAPIView):
         serializer.is_valid(raise_exception=True)
         serializer.save()
         return Response(serializer.data, status=status.HTTP_201_CREATED)
+
+
+class CerrarIncidenciaPersonalView(BotAPIView):
+    def post(self, request, pk):
+        incidencia = get_object_or_404(IncidenciaPersonal, pk=pk, abierta=True)
+        serializer = CierreIncidenciaPersonalSerializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        incidencia.abierta = False
+        incidencia.finalizacion = serializer.validated_data["fecha_hora"]
+        cierre = serializer.validated_data["mensaje"].strip()
+        extra = serializer.validated_data.get("observaciones", "").strip()
+        incidencia.observaciones = " | ".join(x for x in (incidencia.observaciones, cierre, extra) if x)
+        incidencia.save(update_fields=["abierta", "finalizacion", "observaciones", "actualizada_en"])
+        return Response(IncidenciaPersonalSerializer(incidencia).data)
+
+
+class DashboardIncidenciasView(APIView):
+    permission_classes = [IsAuthenticated]
+
+    def get(self, request):
+        equipos = IncidenciaEquipo.objects.select_related("equipo").prefetch_related("eventos")
+        personas = IncidenciaPersonal.objects.select_related("persona")
+        grupo = request.query_params.get("grupo_origen_key")
+        abierta = request.query_params.get("abierta")
+        if grupo:
+            equipos = equipos.filter(grupo_origen_key=grupo)
+            personas = personas.filter(grupo_origen_key=grupo)
+        if abierta is not None:
+            value = serializers.BooleanField().run_validation(abierta)
+            equipos = equipos.filter(abierta=value)
+            personas = personas.filter(abierta=value)
+        return Response({"equipos": IncidenciaEquipoSerializer(equipos, many=True).data, "personas": IncidenciaPersonalSerializer(personas, many=True).data})
 
 
 class HorasParadasView(BotAPIView):
