@@ -26,6 +26,7 @@ Proyecto fullstack para gestión y visualización de producción forestal.
 	- `GET /api/filtros/` → valores para filtros dinámicos (operaciones, unidades, equipos, operadores)
 	- `GET /api/cargas-combustible/`, `/api/filtros-combustible/`, etc.
 	- `GET /api/combustible-equipo-lh/`, `/api/combustible-equipo-vs-historico/` y `/api/combustible-sin-produccion/` → consultas analíticas de combustible autenticadas. Ver [documentación detallada](docs/COMBUSTIBLE_CONSULTAS_API.md).
+	- `GET /api/indicadores/facturacion-movil/`, `/api/indicadores/movil-operativo/` y `/api/indicadores/moviles-ranking/` → facturación reproducible, estados parciales, simulaciones explícitas e indicadores operativos para OpenClaw. Ver [contrato completo](docs/FACTURACION_INDICADORES_BOT_API.md).
 - Comandos custom: `send_kpi_report`, `reporte_diario`, `migrate_empleados`, entre otros.
 
 ## Requisitos

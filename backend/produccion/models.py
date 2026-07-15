@@ -1,6 +1,8 @@
 from django.contrib.auth.models import User
+from django.conf import settings
 
 from django.db import models
+from django.utils import timezone
 
 # Create your models here.
 
@@ -66,6 +68,7 @@ class RegistroProduccion(models.Model):
     m3 = models.IntegerField(default=0)
     tn_despachadas = models.DecimalField(max_digits=12, decimal_places=2, default=0.00)
     produccion = models.DecimalField(max_digits=12, decimal_places=2, default=0.00)
+    unitario = models.DecimalField(max_digits=12, decimal_places=2, default=0.00)
     unidad_produccion = models.CharField(max_length=50, null=True, blank=True)
     hrs_no_operativas = models.DecimalField(max_digits=12, decimal_places=2, default=0.00, db_column='hrs_no_op')
     motivo_no_op = models.CharField(max_length=150, null=True, blank=True)
@@ -75,7 +78,7 @@ class RegistroProduccion(models.Model):
     combustible = models.DecimalField(max_digits=12, decimal_places=2, default=0.00)
     aceite_cadena = models.DecimalField(max_digits=12, decimal_places=2, default=0.00)
     aceite_hidraulico = models.DecimalField(max_digits=12, decimal_places=2, default=0.00)
-    tarifa = models.DecimalField(max_digits=12, decimal_places=2, default=0.00, null=True, blank=True)
+    tarifa = models.DecimalField(max_digits=20, decimal_places=4, default=0.00, null=True, blank=True)
     predio = models.CharField(max_length=50, null=True, blank=True)
     stock_abc = models.DecimalField(max_digits=12, decimal_places=2, default=0.00)
     acta = models.CharField(max_length=50, null=True, blank=True)
@@ -103,6 +106,8 @@ class RegistroProduccion(models.Model):
 
     class Meta:
         db_table = 'tablero_produccion'
+        # Legacy in real environments; SQLite tests create an ephemeral copy.
+        managed = getattr(settings, "MANAGE_LEGACY_TEST_TABLES", False)
 
 class Equipo(models.Model):
 
@@ -132,6 +137,54 @@ class Equipo(models.Model):
 
     def __str__(self):
         return f'{self.patente} - {self.detalle}'
+
+
+class EquipoAlias(models.Model):
+    class Origen(models.TextChoices):
+        MANUAL = "manual", "Manual"
+        OPENCLAW = "openclaw", "OpenClaw"
+        IMPORTACION = "importacion", "Importación"
+        SISTEMA = "sistema", "Sistema"
+
+    equipo = models.ForeignKey(
+        Equipo,
+        on_delete=models.PROTECT,
+        related_name="alias_records",
+        db_constraint=False,
+    )
+    alias_display = models.CharField(max_length=120)
+    alias_normalizado = models.CharField(max_length=120, db_index=True)
+    alias_activo_key = models.CharField(
+        max_length=120,
+        null=True,
+        blank=True,
+        unique=True,
+        editable=False,
+    )
+    activo = models.BooleanField(default=True)
+    origen = models.CharField(max_length=20, choices=Origen.choices)
+    confirmado_por = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.PROTECT,
+        related_name="equipo_aliases_confirmados",
+    )
+    confirmado_at = models.DateTimeField(default=timezone.now)
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+    metadata = models.JSONField(default=dict, blank=True)
+
+    class Meta:
+        db_table = "equipo_alias"
+        ordering = ("alias_display", "id")
+        constraints = [
+            models.UniqueConstraint(
+                fields=("equipo", "alias_normalizado"),
+                name="equipo_alias_equipo_normalizado_uniq",
+            ),
+        ]
+
+    def __str__(self):
+        return f"{self.alias_display} -> {self.equipo.patente}"
     
 class Empleado(models.Model):
     # Relación con User de Django
@@ -187,8 +240,11 @@ class ProduccionMensual(models.Model):
     cantidad_equipo = models.IntegerField(default=0)
     unidad_negocio = models.ForeignKey(UnidadNegocio, on_delete=models.CASCADE, db_column='un', null=True, blank=True)
     unidad_produccion = models.CharField(max_length=50, null=True, blank=True)
+    unidad_tarifa = models.CharField(max_length=50, null=True, blank=True)
     equipo = models.ForeignKey(Equipo, on_delete=models.CASCADE, null=True, blank=True)
     tarifa = models.DecimalField(max_digits=12, decimal_places=2, default=0.00)
+    coeficiente = models.DecimalField(max_digits=20, decimal_places=6, null=True, blank=True)
+    cotizacion = models.DecimalField(max_digits=20, decimal_places=6, null=True, blank=True)
 
     class Meta:
         db_table = 'produccion_mensual'        
@@ -205,4 +261,5 @@ class Moneda(models.Model):
         return self.descripcion
 
     class Meta:
-        db_table = 'moneda'
+        db_table = 'monedas'
+        managed = False
