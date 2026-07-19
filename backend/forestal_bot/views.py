@@ -17,6 +17,7 @@ from forestal_bot.models import (
     WhatsAppGroup,
     WhatsAppMessage,
     WEIGHING_ORGANIZATION_KEY,
+    WEIGHING_UNIT_CATALOG,
     WeighingMeasurement,
     WeighingMeasurementRevision,
     WeighingMovement,
@@ -401,6 +402,124 @@ def period_start(value, period):
     return value.replace(day=1)
 
 
+def empty_weighing_totals():
+    return {
+        "complete_count": 0,
+        "pending_count": 0,
+        "observed_count": 0,
+        "cancelled_count": 0,
+        "effective_net_kg": 0,
+        "effective_net_tonnes": "0.000",
+        "scale_totals_kg": {},
+        "differences_kg": {
+            "felber_minus_forestal_paraguay": {
+                "tara": 0,
+                "bruto": 0,
+                "neto": 0,
+            }
+        },
+        "included_movements": [],
+        "excluded_movements": [],
+    }
+
+
+def build_weighing_buckets(movements, period):
+    buckets = {}
+    for movement in movements:
+        key = period_start(movement.operational_date, period)
+        bucket = buckets.setdefault(
+            key,
+            {"period_start": key, **empty_weighing_totals()},
+        )
+        status_key = {
+            "completo": "complete_count",
+            "pendiente": "pending_count",
+            "observado": "observed_count",
+            "anulado": "cancelled_count",
+        }[movement.status]
+        bucket[status_key] += 1
+        if movement.status != "completo":
+            bucket["excluded_movements"].append(str(movement.pk))
+            continue
+        nets = calculated_nets(movement)
+        official_net = nets.get(movement.official_scale)
+        if official_net is None or official_net <= 0:
+            bucket["excluded_movements"].append(str(movement.pk))
+            continue
+        bucket["included_movements"].append(str(movement.pk))
+        bucket["effective_net_kg"] += official_net
+        for scale, net in nets.items():
+            bucket["scale_totals_kg"][scale] = (
+                bucket["scale_totals_kg"].get(scale, 0) + net
+            )
+        values = {
+            (item.scale, item.kind): item.weight_kg
+            for item in movement.measurements.all()
+        }
+        differences = bucket["differences_kg"][
+            "felber_minus_forestal_paraguay"
+        ]
+        for kind in ("tara", "bruto"):
+            if ("felber", kind) in values and (
+                "forestal_paraguay",
+                kind,
+            ) in values:
+                differences[kind] += (
+                    values[("felber", kind)]
+                    - values[("forestal_paraguay", kind)]
+                )
+        if "felber" in nets and "forestal_paraguay" in nets:
+            differences["neto"] += (
+                nets["felber"] - nets["forestal_paraguay"]
+            )
+
+    results = []
+    for key in sorted(buckets):
+        bucket = buckets[key]
+        bucket["effective_net_tonnes"] = weighing_tonnes(
+            bucket["effective_net_kg"]
+        )
+        results.append(bucket)
+    return results
+
+
+def weighing_tonnes(weight_kg):
+    return str(
+        (Decimal(weight_kg) / Decimal("1000")).quantize(Decimal("0.001"))
+    )
+
+
+def aggregate_weighing_buckets(buckets):
+    totals = empty_weighing_totals()
+    for bucket in buckets:
+        for field in (
+            "complete_count",
+            "pending_count",
+            "observed_count",
+            "cancelled_count",
+            "effective_net_kg",
+        ):
+            totals[field] += bucket[field]
+        for scale, weight in bucket["scale_totals_kg"].items():
+            totals["scale_totals_kg"][scale] = (
+                totals["scale_totals_kg"].get(scale, 0) + weight
+            )
+        target_differences = totals["differences_kg"][
+            "felber_minus_forestal_paraguay"
+        ]
+        source_differences = bucket["differences_kg"][
+            "felber_minus_forestal_paraguay"
+        ]
+        for kind in ("tara", "bruto", "neto"):
+            target_differences[kind] += source_differences[kind]
+        totals["included_movements"].extend(bucket["included_movements"])
+        totals["excluded_movements"].extend(bucket["excluded_movements"])
+    totals["effective_net_tonnes"] = weighing_tonnes(
+        totals["effective_net_kg"]
+    )
+    return totals
+
+
 class WeighingSummaryView(APIView):
     authentication_classes = []
     permission_classes = [OpenClawBearerPermission]
@@ -411,9 +530,19 @@ class WeighingSummaryView(APIView):
             raise serializers.ValidationError(
                 {"period": ["Valores permitidos: daily, weekly, monthly."]}
             )
+        group_by = request.query_params.get("group_by")
+        if group_by not in (None, "", "origin_group_key"):
+            raise serializers.ValidationError(
+                {
+                    "group_by": [
+                        "El único valor permitido es origin_group_key."
+                    ]
+                }
+            )
         queryset = movement_with_relations().filter(
             organization_key=WEIGHING_ORGANIZATION_KEY
         )
+        parsed_dates = {}
         for parameter, lookup in (
             ("date_from", "operational_date__gte"),
             ("date_to", "operational_date__lte"),
@@ -424,84 +553,59 @@ class WeighingSummaryView(APIView):
                     value = serializers.DateField().run_validation(value)
                 except serializers.ValidationError as exc:
                     raise serializers.ValidationError({parameter: exc.detail}) from exc
+                parsed_dates[parameter] = value
                 queryset = queryset.filter(**{lookup: value})
-
-        buckets = {}
-        for movement in queryset:
-            key = period_start(movement.operational_date, period)
-            bucket = buckets.setdefault(
-                key,
+        origin_group_key = request.query_params.get("origin_group_key")
+        if origin_group_key:
+            queryset = queryset.filter(origin_group_key=origin_group_key)
+        if group_by != "origin_group_key":
+            return Response(
                 {
-                    "period_start": key,
-                    "complete_count": 0,
-                    "pending_count": 0,
-                    "observed_count": 0,
-                    "cancelled_count": 0,
-                    "effective_net_kg": 0,
-                    "scale_totals_kg": {},
-                    "differences_kg": {
-                        "felber_minus_forestal_paraguay": {
-                            "tara": 0,
-                            "bruto": 0,
-                            "neto": 0,
-                        }
-                    },
-                    "included_movements": [],
-                    "excluded_movements": [],
-                },
+                    "period": period,
+                    "results": build_weighing_buckets(queryset, period),
+                }
             )
-            status_key = {
-                "completo": "complete_count",
-                "pendiente": "pending_count",
-                "observado": "observed_count",
-                "anulado": "cancelled_count",
-            }[movement.status]
-            bucket[status_key] += 1
-            if movement.status != "completo":
-                bucket["excluded_movements"].append(str(movement.pk))
-                continue
-            nets = calculated_nets(movement)
-            official_net = nets.get(movement.official_scale)
-            if official_net is None or official_net <= 0:
-                bucket["excluded_movements"].append(str(movement.pk))
-                continue
-            bucket["included_movements"].append(str(movement.pk))
-            bucket["effective_net_kg"] += official_net
-            for scale, net in nets.items():
-                bucket["scale_totals_kg"][scale] = (
-                    bucket["scale_totals_kg"].get(scale, 0) + net
-                )
-            values = {
-                (item.scale, item.kind): item.weight_kg
-                for item in movement.measurements.all()
-            }
-            differences = bucket["differences_kg"][
-                "felber_minus_forestal_paraguay"
-            ]
-            for kind in ("tara", "bruto"):
-                if ("felber", kind) in values and (
-                    "forestal_paraguay",
-                    kind,
-                ) in values:
-                    differences[kind] += (
-                        values[("felber", kind)]
-                        - values[("forestal_paraguay", kind)]
-                    )
-            if "felber" in nets and "forestal_paraguay" in nets:
-                differences["neto"] += (
-                    nets["felber"] - nets["forestal_paraguay"]
-                )
 
-        results = []
-        for key in sorted(buckets):
-            bucket = buckets[key]
-            bucket["effective_net_tonnes"] = str(
-                (Decimal(bucket["effective_net_kg"]) / Decimal("1000")).quantize(
-                    Decimal("0.001")
-                )
+        selected_unit_keys = (
+            [origin_group_key]
+            if origin_group_key in WEIGHING_UNIT_CATALOG
+            else list(WEIGHING_UNIT_CATALOG)
+            if not origin_group_key
+            else []
+        )
+        movements_by_unit = {key: [] for key in selected_unit_keys}
+        for movement in queryset:
+            if movement.origin_group_key in movements_by_unit:
+                movements_by_unit[movement.origin_group_key].append(movement)
+
+        units = []
+        for unit_key in selected_unit_keys:
+            buckets = build_weighing_buckets(
+                movements_by_unit[unit_key], period
             )
-            results.append(bucket)
-        return Response({"period": period, "results": results})
+            units.append(
+                {
+                    "origin_group_key": unit_key,
+                    "display_name": WEIGHING_UNIT_CATALOG[unit_key][
+                        "display_name"
+                    ],
+                    **aggregate_weighing_buckets(buckets),
+                    "buckets": buckets,
+                }
+            )
+        total_buckets = []
+        for unit in units:
+            total_buckets.extend(unit["buckets"])
+        return Response(
+            {
+                "organization_key": WEIGHING_ORGANIZATION_KEY,
+                "period": period,
+                "date_from": parsed_dates.get("date_from"),
+                "date_to": parsed_dates.get("date_to"),
+                "units": units,
+                "totals": aggregate_weighing_buckets(total_buckets),
+            }
+        )
 
 
 def resolve_message_group(validated_data):

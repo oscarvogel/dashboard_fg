@@ -196,3 +196,281 @@ GET /api/forestal-bot/weighing-movements/summary/?period=daily&date_from=2026-07
 Para semana o mes usar `period=weekly` o `period=monthly`. Cada bloque incluye
 conteos por estado, `effective_net_kg`, `effective_net_tonnes`, totales por
 báscula, diferencias acumuladas e IDs incluidos/excluidos.
+
+## Resúmenes por unidad operativa
+
+La unidad se determina exclusivamente mediante `origin_group_key`. El catálogo
+inicial es:
+
+- `logistica-felber` → Logística Felber; báscula oficial habitual `felber`.
+- `cosecha-paraguari` → Cosecha Paraguari; báscula oficial habitual
+  `forestal_paraguay`.
+
+La báscula habitual es informativa: cada movimiento continúa obligado a
+declarar su propia `official_scale`. No se infiere desde la unidad.
+
+### Resumen general compatible
+
+Sin `group_by`, el contrato anterior no cambia:
+
+```http
+GET /api/forestal-bot/weighing-movements/summary/?period=daily&date_from=2026-07-19&date_to=2026-07-19
+```
+
+```json
+{
+  "period": "daily",
+  "results": [
+    {
+      "period_start": "2026-07-19",
+      "complete_count": 2,
+      "pending_count": 1,
+      "observed_count": 1,
+      "cancelled_count": 1,
+      "effective_net_kg": 51840,
+      "effective_net_tonnes": "51.840",
+      "scale_totals_kg": {
+        "felber": 20000,
+        "forestal_paraguay": 31840
+      },
+      "differences_kg": {
+        "felber_minus_forestal_paraguay": {
+          "tara": 0,
+          "bruto": 0,
+          "neto": 0
+        }
+      },
+      "included_movements": ["uuid-paraguari", "uuid-felber"],
+      "excluded_movements": [
+        "uuid-pendiente",
+        "uuid-observado",
+        "uuid-anulado"
+      ]
+    }
+  ]
+}
+```
+
+### Resumen filtrado por Logística Felber
+
+```http
+GET /api/forestal-bot/weighing-movements/summary/?period=daily&date_from=2026-07-19&date_to=2026-07-19&origin_group_key=logistica-felber
+```
+
+```json
+{
+  "period": "daily",
+  "results": [
+    {
+      "period_start": "2026-07-19",
+      "complete_count": 1,
+      "pending_count": 1,
+      "observed_count": 0,
+      "cancelled_count": 1,
+      "effective_net_kg": 20000,
+      "effective_net_tonnes": "20.000",
+      "scale_totals_kg": {"felber": 20000},
+      "differences_kg": {
+        "felber_minus_forestal_paraguay": {
+          "tara": 0,
+          "bruto": 0,
+          "neto": 0
+        }
+      },
+      "included_movements": ["uuid-felber"],
+      "excluded_movements": ["uuid-pendiente", "uuid-anulado"]
+    }
+  ]
+}
+```
+
+### Resumen filtrado por Cosecha Paraguari
+
+```http
+GET /api/forestal-bot/weighing-movements/summary/?period=daily&date_from=2026-07-19&date_to=2026-07-19&origin_group_key=cosecha-paraguari
+```
+
+```json
+{
+  "period": "daily",
+  "results": [
+    {
+      "period_start": "2026-07-19",
+      "complete_count": 1,
+      "pending_count": 0,
+      "observed_count": 1,
+      "cancelled_count": 0,
+      "effective_net_kg": 31840,
+      "effective_net_tonnes": "31.840",
+      "scale_totals_kg": {"forestal_paraguay": 31840},
+      "differences_kg": {
+        "felber_minus_forestal_paraguay": {
+          "tara": 0,
+          "bruto": 0,
+          "neto": 0
+        }
+      },
+      "included_movements": ["uuid-paraguari"],
+      "excluded_movements": ["uuid-observado"]
+    }
+  ]
+}
+```
+
+### Resumen agrupado por unidades
+
+La forma agrupada sólo se activa con `group_by=origin_group_key`:
+
+```http
+GET /api/forestal-bot/weighing-movements/summary/?period=daily&date_from=2026-07-19&date_to=2026-07-19&group_by=origin_group_key
+```
+
+```json
+{
+  "organization_key": "forestal-paraguay",
+  "period": "daily",
+  "date_from": "2026-07-19",
+  "date_to": "2026-07-19",
+  "units": [
+    {
+      "origin_group_key": "logistica-felber",
+      "display_name": "Logística Felber",
+      "complete_count": 1,
+      "pending_count": 1,
+      "observed_count": 0,
+      "cancelled_count": 1,
+      "effective_net_kg": 20000,
+      "effective_net_tonnes": "20.000",
+      "scale_totals_kg": {"felber": 20000},
+      "differences_kg": {
+        "felber_minus_forestal_paraguay": {
+          "tara": 0,
+          "bruto": 0,
+          "neto": 0
+        }
+      },
+      "included_movements": ["uuid-felber"],
+      "excluded_movements": ["uuid-pendiente", "uuid-anulado"],
+      "buckets": [
+        {
+          "period_start": "2026-07-19",
+          "complete_count": 1,
+          "pending_count": 1,
+          "observed_count": 0,
+          "cancelled_count": 1,
+          "effective_net_kg": 20000,
+          "effective_net_tonnes": "20.000",
+          "scale_totals_kg": {"felber": 20000},
+          "differences_kg": {
+            "felber_minus_forestal_paraguay": {
+              "tara": 0,
+              "bruto": 0,
+              "neto": 0
+            }
+          },
+          "included_movements": ["uuid-felber"],
+          "excluded_movements": ["uuid-pendiente", "uuid-anulado"]
+        }
+      ]
+    },
+    {
+      "origin_group_key": "cosecha-paraguari",
+      "display_name": "Cosecha Paraguari",
+      "complete_count": 1,
+      "pending_count": 0,
+      "observed_count": 1,
+      "cancelled_count": 0,
+      "effective_net_kg": 31840,
+      "effective_net_tonnes": "31.840",
+      "scale_totals_kg": {"forestal_paraguay": 31840},
+      "differences_kg": {
+        "felber_minus_forestal_paraguay": {
+          "tara": 0,
+          "bruto": 0,
+          "neto": 0
+        }
+      },
+      "included_movements": ["uuid-paraguari"],
+      "excluded_movements": ["uuid-observado"],
+      "buckets": [
+        {
+          "period_start": "2026-07-19",
+          "complete_count": 1,
+          "pending_count": 0,
+          "observed_count": 1,
+          "cancelled_count": 0,
+          "effective_net_kg": 31840,
+          "effective_net_tonnes": "31.840",
+          "scale_totals_kg": {"forestal_paraguay": 31840},
+          "differences_kg": {
+            "felber_minus_forestal_paraguay": {
+              "tara": 0,
+              "bruto": 0,
+              "neto": 0
+            }
+          },
+          "included_movements": ["uuid-paraguari"],
+          "excluded_movements": ["uuid-observado"]
+        }
+      ]
+    }
+  ],
+  "totals": {
+    "complete_count": 2,
+    "pending_count": 1,
+    "observed_count": 1,
+    "cancelled_count": 1,
+    "effective_net_kg": 51840,
+    "effective_net_tonnes": "51.840",
+    "scale_totals_kg": {
+      "felber": 20000,
+      "forestal_paraguay": 31840
+    },
+    "differences_kg": {
+      "felber_minus_forestal_paraguay": {
+        "tara": 0,
+        "bruto": 0,
+        "neto": 0
+      }
+    },
+    "included_movements": ["uuid-felber", "uuid-paraguari"],
+    "excluded_movements": [
+      "uuid-pendiente",
+      "uuid-anulado",
+      "uuid-observado"
+    ]
+  }
+}
+```
+
+### Unidad desconocida
+
+El criterio elegido es una respuesta vacía, no un error. Esto conserva el
+comportamiento habitual de los filtros y evita mezclar datos:
+
+```http
+GET /api/forestal-bot/weighing-movements/summary/?period=daily&origin_group_key=unidad-desconocida
+```
+
+```json
+{"period": "daily", "results": []}
+```
+
+Con agrupación, la misma unidad desconocida devuelve `units: []` y `totals`
+en cero.
+
+### `group_by` inválido
+
+```http
+GET /api/forestal-bot/weighing-movements/summary/?group_by=scale
+```
+
+Respuesta `400`:
+
+```json
+{
+  "group_by": [
+    "El único valor permitido es origin_group_key."
+  ]
+}
+```
