@@ -1,4 +1,6 @@
 from collections.abc import Mapping
+from datetime import timedelta
+from decimal import Decimal
 
 from django.db import IntegrityError, transaction
 from django.utils import timezone
@@ -14,6 +16,10 @@ from forestal_bot.models import (
     UNIDENTIFIED_GROUP_NAME,
     WhatsAppGroup,
     WhatsAppMessage,
+    WEIGHING_ORGANIZATION_KEY,
+    WeighingMeasurement,
+    WeighingMeasurementRevision,
+    WeighingMovement,
 )
 from forestal_bot.permissions import OpenClawBearerPermission
 from forestal_bot.serializers import (
@@ -21,6 +27,9 @@ from forestal_bot.serializers import (
     WhatsAppGroupSerializer,
     WhatsAppMessageSerializer,
     WhatsAppOwnerMessageSerializer,
+    WeighingMeasurementSerializer,
+    WeighingMovementSerializer,
+    normalize_plate,
 )
 
 
@@ -113,6 +122,386 @@ class DailySummaryDetailView(APIView):
         except DailySummaryRun.DoesNotExist:
             return Response(status=status.HTTP_404_NOT_FOUND)
         return Response(DailySummaryRunSerializer(run).data)
+
+
+def movement_with_relations():
+    return WeighingMovement.objects.prefetch_related(
+        "measurements__revisions"
+    )
+
+
+def calculated_nets(movement):
+    return WeighingMovementSerializer.nets_for(movement)
+
+
+def validate_completion(movement):
+    if not movement.official_scale:
+        raise serializers.ValidationError(
+            {"official_scale": ["Debe declararse la báscula oficial."]}
+        )
+    net = calculated_nets(movement).get(movement.official_scale)
+    if net is None:
+        raise serializers.ValidationError(
+            {"measurements": ["Faltan tara o bruto de la báscula oficial."]}
+        )
+    if net <= 0:
+        raise serializers.ValidationError(
+            {"net_kg": ["El neto de un movimiento completo debe ser positivo."]}
+        )
+    return net
+
+
+class WeighingMovementListCreateView(APIView):
+    authentication_classes = []
+    permission_classes = [OpenClawBearerPermission]
+
+    def get(self, request):
+        queryset = movement_with_relations().filter(
+            organization_key=WEIGHING_ORGANIZATION_KEY
+        )
+        filters = {
+            "organization_key": "organization_key",
+            "plate": "plate_normalized__icontains",
+            "driver": "driver_name__icontains",
+            "status": "status",
+            "origin_group_key": "origin_group_key",
+        }
+        for parameter, field in filters.items():
+            value = request.query_params.get(parameter)
+            if value:
+                if parameter == "plate":
+                    value = normalize_plate(value)
+                queryset = queryset.filter(**{field: value})
+        for parameter, lookup in (
+            ("date_from", "operational_date__gte"),
+            ("date_to", "operational_date__lte"),
+        ):
+            value = request.query_params.get(parameter)
+            if value:
+                try:
+                    parsed = serializers.DateField().run_validation(value)
+                except serializers.ValidationError as exc:
+                    raise serializers.ValidationError({parameter: exc.detail}) from exc
+                queryset = queryset.filter(**{lookup: parsed})
+        return Response(WeighingMovementSerializer(queryset, many=True).data)
+
+    def post(self, request):
+        if not isinstance(request.data, Mapping):
+            raise serializers.ValidationError(
+                {"non_field_errors": ["Se esperaba un objeto JSON."]}
+            )
+        serializer = WeighingMovementSerializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        data = dict(serializer.validated_data)
+        asserted_net = data.pop("net_kg", None)
+        idempotency_key = data.pop("idempotency_key")
+        data["plate_normalized"] = normalize_plate(data.get("plate_original", ""))
+        with transaction.atomic():
+            movement = WeighingMovement.objects.select_for_update().filter(
+                idempotency_key=idempotency_key
+            ).first()
+            created = movement is None
+            if movement is None:
+                movement = WeighingMovement.objects.create(
+                    idempotency_key=idempotency_key, **data
+                )
+            else:
+                if data.get("status") == "pendiente" and movement.status != "pendiente":
+                    data["status"] = movement.status
+                for field, value in data.items():
+                    setattr(movement, field, value)
+                movement.save()
+            movement = movement_with_relations().get(pk=movement.pk)
+            if asserted_net is not None:
+                if not movement.official_scale:
+                    raise serializers.ValidationError(
+                        {"net_kg": ["Requiere una báscula oficial declarada."]}
+                    )
+                calculated = calculated_nets(movement).get(movement.official_scale)
+                if calculated is None or asserted_net != calculated:
+                    raise serializers.ValidationError(
+                        {"net_kg": ["No coincide con bruto menos tara."]}
+                    )
+            if movement.status == "completo":
+                validate_completion(movement)
+        return Response(
+            {
+                "created": created,
+                "movement": WeighingMovementSerializer(movement).data,
+            },
+            status=status.HTTP_201_CREATED if created else status.HTTP_200_OK,
+        )
+
+
+class WeighingMovementDetailView(APIView):
+    authentication_classes = []
+    permission_classes = [OpenClawBearerPermission]
+
+    def get(self, request, pk):
+        try:
+            movement = movement_with_relations().get(
+                pk=pk, organization_key=WEIGHING_ORGANIZATION_KEY
+            )
+        except WeighingMovement.DoesNotExist:
+            return Response(status=status.HTTP_404_NOT_FOUND)
+        return Response(WeighingMovementSerializer(movement).data)
+
+
+class WeighingMeasurementUpsertView(APIView):
+    authentication_classes = []
+    permission_classes = [OpenClawBearerPermission]
+
+    def post(self, request, pk):
+        try:
+            movement = WeighingMovement.objects.get(
+                pk=pk, organization_key=WEIGHING_ORGANIZATION_KEY
+            )
+        except WeighingMovement.DoesNotExist:
+            return Response(status=status.HTTP_404_NOT_FOUND)
+        serializer = WeighingMeasurementSerializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        data = dict(serializer.validated_data)
+        asserted_net = data.pop("net_kg", None)
+        idempotency_key = data["idempotency_key"]
+
+        with transaction.atomic():
+            replay = WeighingMeasurementRevision.objects.select_related(
+                "measurement"
+            ).filter(idempotency_key=idempotency_key).first()
+            if replay:
+                expected = {
+                    key: data.get(key, "")
+                    for key in (
+                        "weight_kg",
+                        "source",
+                        "evidence_id",
+                        "message_id",
+                        "measured_at",
+                        "correction_reason",
+                    )
+                }
+                actual = {key: getattr(replay, key) for key in expected}
+                if (
+                    expected != actual
+                    or replay.measurement.movement_id != movement.pk
+                    or replay.measurement.scale != data["scale"]
+                    or replay.measurement.kind != data["kind"]
+                ):
+                    return Response(
+                        {"detail": "idempotency_key ya fue usada con otro contenido."},
+                        status=status.HTTP_409_CONFLICT,
+                    )
+                measurement = replay.measurement
+                created = False
+            else:
+                identity = {
+                    "movement": movement,
+                    "scale": data["scale"],
+                    "kind": data["kind"],
+                }
+                measurement = WeighingMeasurement.objects.select_for_update().filter(
+                    **identity
+                ).first()
+                created = measurement is None
+                if measurement is None:
+                    measurement = WeighingMeasurement(**identity)
+                measurement.idempotency_key = idempotency_key
+                for field in (
+                    "weight_kg",
+                    "source",
+                    "evidence_id",
+                    "message_id",
+                    "measured_at",
+                    "correction_reason",
+                ):
+                    setattr(measurement, field, data.get(field, ""))
+                measurement.save()
+                revision = measurement.revisions.count() + 1
+                WeighingMeasurementRevision.objects.create(
+                    measurement=measurement,
+                    revision=revision,
+                    **{
+                        field: getattr(measurement, field)
+                        for field in (
+                            "idempotency_key",
+                            "weight_kg",
+                            "source",
+                            "evidence_id",
+                            "message_id",
+                            "measured_at",
+                            "correction_reason",
+                        )
+                    },
+                )
+
+            refreshed = movement_with_relations().get(pk=movement.pk)
+            nets = calculated_nets(refreshed)
+            calculated = nets.get(data["scale"])
+            if asserted_net is not None and (
+                calculated is None or asserted_net != calculated
+            ):
+                raise serializers.ValidationError(
+                    {"net_kg": ["No coincide con bruto menos tara."]}
+                )
+            if refreshed.status == "completo":
+                validate_completion(refreshed)
+            if (
+                refreshed.status == "pendiente"
+                and refreshed.official_scale
+                and nets.get(refreshed.official_scale, 0) > 0
+            ):
+                refreshed.status = "completo"
+                refreshed.save(update_fields=["status", "updated_at"])
+                refreshed = movement_with_relations().get(pk=movement.pk)
+
+        return Response(
+            {
+                "created": created,
+                "replayed": replay is not None,
+                "measurement": WeighingMeasurementSerializer(measurement).data,
+                "movement": WeighingMovementSerializer(refreshed).data,
+            },
+            status=status.HTTP_201_CREATED if created else status.HTTP_200_OK,
+        )
+
+
+class WeighingMovementCompleteView(APIView):
+    authentication_classes = []
+    permission_classes = [OpenClawBearerPermission]
+
+    def post(self, request, pk):
+        try:
+            movement = movement_with_relations().get(
+                pk=pk, organization_key=WEIGHING_ORGANIZATION_KEY
+            )
+        except WeighingMovement.DoesNotExist:
+            return Response(status=status.HTTP_404_NOT_FOUND)
+        official_scale = request.data.get("official_scale", movement.official_scale)
+        if official_scale:
+            try:
+                movement.official_scale = serializers.ChoiceField(
+                    choices=("felber", "forestal_paraguay", "otro")
+                ).run_validation(official_scale)
+            except serializers.ValidationError as exc:
+                raise serializers.ValidationError(
+                    {"official_scale": exc.detail}
+                ) from exc
+        validate_completion(movement)
+        movement.status = "completo"
+        movement.save(update_fields=["official_scale", "status", "updated_at"])
+        movement = movement_with_relations().get(pk=movement.pk)
+        return Response(WeighingMovementSerializer(movement).data)
+
+
+def period_start(value, period):
+    if period == "daily":
+        return value
+    if period == "weekly":
+        return value - timedelta(days=value.weekday())
+    return value.replace(day=1)
+
+
+class WeighingSummaryView(APIView):
+    authentication_classes = []
+    permission_classes = [OpenClawBearerPermission]
+
+    def get(self, request):
+        period = request.query_params.get("period", "daily")
+        if period not in {"daily", "weekly", "monthly"}:
+            raise serializers.ValidationError(
+                {"period": ["Valores permitidos: daily, weekly, monthly."]}
+            )
+        queryset = movement_with_relations().filter(
+            organization_key=WEIGHING_ORGANIZATION_KEY
+        )
+        for parameter, lookup in (
+            ("date_from", "operational_date__gte"),
+            ("date_to", "operational_date__lte"),
+        ):
+            value = request.query_params.get(parameter)
+            if value:
+                try:
+                    value = serializers.DateField().run_validation(value)
+                except serializers.ValidationError as exc:
+                    raise serializers.ValidationError({parameter: exc.detail}) from exc
+                queryset = queryset.filter(**{lookup: value})
+
+        buckets = {}
+        for movement in queryset:
+            key = period_start(movement.operational_date, period)
+            bucket = buckets.setdefault(
+                key,
+                {
+                    "period_start": key,
+                    "complete_count": 0,
+                    "pending_count": 0,
+                    "observed_count": 0,
+                    "cancelled_count": 0,
+                    "effective_net_kg": 0,
+                    "scale_totals_kg": {},
+                    "differences_kg": {
+                        "felber_minus_forestal_paraguay": {
+                            "tara": 0,
+                            "bruto": 0,
+                            "neto": 0,
+                        }
+                    },
+                    "included_movements": [],
+                    "excluded_movements": [],
+                },
+            )
+            status_key = {
+                "completo": "complete_count",
+                "pendiente": "pending_count",
+                "observado": "observed_count",
+                "anulado": "cancelled_count",
+            }[movement.status]
+            bucket[status_key] += 1
+            if movement.status != "completo":
+                bucket["excluded_movements"].append(str(movement.pk))
+                continue
+            nets = calculated_nets(movement)
+            official_net = nets.get(movement.official_scale)
+            if official_net is None or official_net <= 0:
+                bucket["excluded_movements"].append(str(movement.pk))
+                continue
+            bucket["included_movements"].append(str(movement.pk))
+            bucket["effective_net_kg"] += official_net
+            for scale, net in nets.items():
+                bucket["scale_totals_kg"][scale] = (
+                    bucket["scale_totals_kg"].get(scale, 0) + net
+                )
+            values = {
+                (item.scale, item.kind): item.weight_kg
+                for item in movement.measurements.all()
+            }
+            differences = bucket["differences_kg"][
+                "felber_minus_forestal_paraguay"
+            ]
+            for kind in ("tara", "bruto"):
+                if ("felber", kind) in values and (
+                    "forestal_paraguay",
+                    kind,
+                ) in values:
+                    differences[kind] += (
+                        values[("felber", kind)]
+                        - values[("forestal_paraguay", kind)]
+                    )
+            if "felber" in nets and "forestal_paraguay" in nets:
+                differences["neto"] += (
+                    nets["felber"] - nets["forestal_paraguay"]
+                )
+
+        results = []
+        for key in sorted(buckets):
+            bucket = buckets[key]
+            bucket["effective_net_tonnes"] = str(
+                (Decimal(bucket["effective_net_kg"]) / Decimal("1000")).quantize(
+                    Decimal("0.001")
+                )
+            )
+            results.append(bucket)
+        return Response({"period": period, "results": results})
 
 
 def resolve_message_group(validated_data):

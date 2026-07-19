@@ -6,6 +6,10 @@ from forestal_bot.models import (
     DailySummaryDelivery,
     DailySummaryGroup,
     DailySummaryRun,
+    WEIGHING_ORGANIZATION_KEY,
+    WeighingMeasurement,
+    WeighingMeasurementRevision,
+    WeighingMovement,
     WhatsAppGroup,
     WhatsAppMessage,
 )
@@ -230,3 +234,170 @@ class DailySummaryRunSerializer(serializers.ModelSerializer):
                 "channel and recipient_name pairs must be unique."
             )
         return value
+
+
+def normalize_plate(value):
+    return "".join(character for character in value.upper() if character.isalnum())
+
+
+class WeighingMeasurementRevisionSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = WeighingMeasurementRevision
+        fields = (
+            "revision",
+            "idempotency_key",
+            "weight_kg",
+            "source",
+            "evidence_id",
+            "message_id",
+            "measured_at",
+            "correction_reason",
+            "recorded_at",
+        )
+        read_only_fields = fields
+
+
+class WeighingMeasurementSerializer(serializers.ModelSerializer):
+    idempotency_key = serializers.CharField(max_length=128, validators=[])
+    net_kg = serializers.IntegerField(required=False, write_only=True)
+    revisions = WeighingMeasurementRevisionSerializer(many=True, read_only=True)
+
+    class Meta:
+        model = WeighingMeasurement
+        fields = (
+            "id",
+            "idempotency_key",
+            "scale",
+            "kind",
+            "weight_kg",
+            "source",
+            "evidence_id",
+            "message_id",
+            "measured_at",
+            "correction_reason",
+            "net_kg",
+            "revisions",
+            "created_at",
+            "updated_at",
+        )
+        read_only_fields = ("id", "revisions", "created_at", "updated_at")
+
+    def validate_weight_kg(self, value):
+        if value <= 0:
+            raise serializers.ValidationError("El peso debe ser mayor que cero.")
+        return value
+
+
+class WeighingMovementSerializer(serializers.ModelSerializer):
+    idempotency_key = serializers.CharField(max_length=128, validators=[])
+    measurements = WeighingMeasurementSerializer(many=True, read_only=True)
+    calculated_nets_kg = serializers.SerializerMethodField()
+    comparisons_kg = serializers.SerializerMethodField()
+    declared_vs_official_net_kg = serializers.SerializerMethodField()
+    net_kg = serializers.IntegerField(required=False, write_only=True)
+
+    class Meta:
+        model = WeighingMovement
+        fields = (
+            "id",
+            "idempotency_key",
+            "organization_key",
+            "origin_group_key",
+            "operational_date",
+            "plate_normalized",
+            "plate_original",
+            "driver_name",
+            "status",
+            "declared_quantity_kg",
+            "official_scale",
+            "observations",
+            "evidence",
+            "source_message_ids",
+            "measurements",
+            "calculated_nets_kg",
+            "comparisons_kg",
+            "declared_vs_official_net_kg",
+            "net_kg",
+            "created_at",
+            "updated_at",
+        )
+        read_only_fields = (
+            "id",
+            "plate_normalized",
+            "measurements",
+            "calculated_nets_kg",
+            "comparisons_kg",
+            "declared_vs_official_net_kg",
+            "created_at",
+            "updated_at",
+        )
+
+    def validate_organization_key(self, value):
+        if value != WEIGHING_ORGANIZATION_KEY:
+            raise serializers.ValidationError(
+                f"organization_key debe ser {WEIGHING_ORGANIZATION_KEY}."
+            )
+        return value
+
+    def validate_declared_quantity_kg(self, value):
+        if value is not None and value <= 0:
+            raise serializers.ValidationError(
+                "La cantidad declarada debe ser mayor que cero."
+            )
+        return value
+
+    def validate(self, attrs):
+        if attrs.get("status") == "completo" and not attrs.get("official_scale"):
+            raise serializers.ValidationError(
+                {"official_scale": ["Es obligatoria para completar el movimiento."]}
+            )
+        return attrs
+
+    @staticmethod
+    def nets_for(obj):
+        weights = {}
+        for measurement in obj.measurements.all():
+            weights.setdefault(measurement.scale, {})[measurement.kind] = (
+                measurement.weight_kg
+            )
+        return {
+            scale: values["bruto"] - values["tara"]
+            for scale, values in weights.items()
+            if "tara" in values and "bruto" in values
+        }
+
+    def get_calculated_nets_kg(self, obj):
+        return self.nets_for(obj)
+
+    def get_comparisons_kg(self, obj):
+        weights = {
+            (measurement.scale, measurement.kind): measurement.weight_kg
+            for measurement in obj.measurements.all()
+        }
+        felber_net = self.nets_for(obj).get("felber")
+        paraguay_net = self.nets_for(obj).get("forestal_paraguay")
+
+        def difference(kind):
+            first = weights.get(("felber", kind))
+            second = weights.get(("forestal_paraguay", kind))
+            return None if first is None or second is None else first - second
+
+        return {
+            "felber_minus_forestal_paraguay": {
+                "tara": difference("tara"),
+                "bruto": difference("bruto"),
+                "neto": (
+                    None
+                    if felber_net is None or paraguay_net is None
+                    else felber_net - paraguay_net
+                ),
+            }
+        }
+
+    def get_declared_vs_official_net_kg(self, obj):
+        if obj.declared_quantity_kg is None or not obj.official_scale:
+            return None
+        official_net = self.nets_for(obj).get(obj.official_scale)
+        if official_net is None:
+            return None
+        return obj.declared_quantity_kg - official_net

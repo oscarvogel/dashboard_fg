@@ -1,3 +1,5 @@
+import uuid
+
 from django.db import models
 from django.core.validators import MaxLengthValidator
 
@@ -22,6 +24,26 @@ DAILY_SUMMARY_DELIVERY_STATUS_CHOICES = [
     ("sent", "Enviado"),
     ("failed", "Fallido"),
     ("skipped_duplicate", "Duplicado omitido"),
+]
+WEIGHING_ORGANIZATION_KEY = "forestal-paraguay"
+WEIGHING_STATUS_CHOICES = [
+    ("pendiente", "Pendiente"),
+    ("completo", "Completo"),
+    ("observado", "Observado"),
+    ("anulado", "Anulado"),
+]
+WEIGHING_SCALE_CHOICES = [
+    ("felber", "Felber"),
+    ("forestal_paraguay", "Forestal Paraguay"),
+    ("otro", "Otro"),
+]
+WEIGHING_KIND_CHOICES = [("tara", "Tara"), ("bruto", "Bruto")]
+WEIGHING_SOURCE_CHOICES = [
+    ("foto_balanza", "Foto de balanza"),
+    ("remision", "Remisión"),
+    ("planilla", "Planilla"),
+    ("mensaje", "Mensaje"),
+    ("correccion_manual", "Corrección manual"),
 ]
 
 
@@ -210,5 +232,91 @@ class DailySummaryDelivery(models.Model):
             models.UniqueConstraint(
                 fields=["run", "channel", "recipient_name"],
                 name="forestal_bot_daily_summary_delivery_uniq",
+            )
+        ]
+
+
+class WeighingMovement(models.Model):
+    id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
+    idempotency_key = models.CharField(max_length=128, unique=True)
+    organization_key = models.CharField(
+        max_length=64, default=WEIGHING_ORGANIZATION_KEY, db_index=True
+    )
+    origin_group_key = models.CharField(
+        max_length=100, default="logistica-felber", db_index=True
+    )
+    operational_date = models.DateField(db_index=True)
+    plate_normalized = models.CharField(max_length=32, blank=True, default="", db_index=True)
+    plate_original = models.CharField(max_length=64, blank=True, default="")
+    driver_name = models.CharField(max_length=255, blank=True, default="", db_index=True)
+    status = models.CharField(
+        max_length=16, choices=WEIGHING_STATUS_CHOICES, default="pendiente", db_index=True
+    )
+    declared_quantity_kg = models.PositiveIntegerField(null=True, blank=True)
+    official_scale = models.CharField(
+        max_length=32, choices=WEIGHING_SCALE_CHOICES, null=True, blank=True
+    )
+    observations = models.TextField(blank=True, default="")
+    evidence = models.JSONField(default=list, blank=True)
+    source_message_ids = models.JSONField(default=list, blank=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        ordering = ["-operational_date", "-created_at"]
+        indexes = [
+            models.Index(
+                fields=["organization_key", "operational_date"],
+                name="forestal_weigh_org_date_idx",
+            )
+        ]
+
+
+class WeighingMeasurement(models.Model):
+    movement = models.ForeignKey(
+        WeighingMovement, on_delete=models.CASCADE, related_name="measurements"
+    )
+    idempotency_key = models.CharField(max_length=128, unique=True)
+    scale = models.CharField(max_length=32, choices=WEIGHING_SCALE_CHOICES)
+    kind = models.CharField(max_length=16, choices=WEIGHING_KIND_CHOICES)
+    weight_kg = models.PositiveIntegerField()
+    source = models.CharField(max_length=32, choices=WEIGHING_SOURCE_CHOICES)
+    evidence_id = models.CharField(max_length=255, blank=True, default="")
+    message_id = models.CharField(max_length=255, blank=True, default="")
+    measured_at = models.DateTimeField()
+    correction_reason = models.CharField(max_length=500, blank=True, default="")
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        ordering = ["scale", "kind"]
+        constraints = [
+            models.UniqueConstraint(
+                fields=["movement", "scale", "kind"],
+                name="forestal_weigh_measurement_identity_uniq",
+            )
+        ]
+
+
+class WeighingMeasurementRevision(models.Model):
+    measurement = models.ForeignKey(
+        WeighingMeasurement, on_delete=models.CASCADE, related_name="revisions"
+    )
+    revision = models.PositiveIntegerField()
+    idempotency_key = models.CharField(max_length=128, unique=True)
+    weight_kg = models.PositiveIntegerField()
+    source = models.CharField(max_length=32, choices=WEIGHING_SOURCE_CHOICES)
+    evidence_id = models.CharField(max_length=255, blank=True, default="")
+    message_id = models.CharField(max_length=255, blank=True, default="")
+    measured_at = models.DateTimeField()
+    correction_reason = models.CharField(max_length=500, blank=True, default="")
+    recorded_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        ordering = ["revision"]
+        constraints = [
+            models.UniqueConstraint(
+                fields=["measurement", "revision"],
+                name="forestal_weigh_revision_identity_uniq",
             )
         ]
