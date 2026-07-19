@@ -635,3 +635,53 @@ class WeighingMovementAPITests(APITestCase):
             "included_movements": [],
             "excluded_movements": [],
         })
+
+    def test_same_remission_number_never_links_movements_across_units(self):
+        shared_evidence = [{"type": "remision", "id": "0002421"}]
+        felber = self.create_movement(
+            "shared-remission-felber",
+            operational_date="2026-07-19",
+            origin_group_key="logistica-felber",
+            plate_original="ACB 190",
+            official_scale=None,
+            declared_quantity_kg=None,
+            evidence=shared_evidence,
+            observations="Remisión 0002421",
+        ).data["movement"]
+        paraguari = self.create_movement(
+            "shared-remission-paraguari",
+            operational_date="2026-07-19",
+            origin_group_key="cosecha-paraguari",
+            plate_original="AA XO 380",
+            official_scale=None,
+            declared_quantity_kg=None,
+            evidence=shared_evidence,
+            observations="Remisión 0002421",
+        ).data["movement"]
+
+        response = self.client.get(
+            reverse("forestal_bot:weighing-summary"),
+            {
+                "period": "daily",
+                "date_from": "2026-07-19",
+                "date_to": "2026-07-19",
+                "group_by": "origin_group_key",
+            },
+            **self.headers,
+        )
+        units = {
+            unit["origin_group_key"]: unit for unit in response.data["units"]
+        }
+        self.assertEqual(
+            units["logistica-felber"]["excluded_movements"], [felber["id"]]
+        )
+        self.assertEqual(
+            units["cosecha-paraguari"]["excluded_movements"],
+            [paraguari["id"]],
+        )
+        self.assertNotEqual(felber["id"], paraguari["id"])
+        self.assertEqual(response.data["totals"]["pending_count"], 2)
+        self.assertEqual(
+            set(response.data["totals"]["excluded_movements"]),
+            {felber["id"], paraguari["id"]},
+        )
