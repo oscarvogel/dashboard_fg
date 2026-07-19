@@ -5,6 +5,8 @@ router = DefaultRouter()
 
 urlpatterns = [
     path('', include(router.urls)),
+    path('ordenes/estado/', views.buscar_estado_orden, name='buscar-estado-orden'),
+    path('ordenes/<str:referencia>/', views.consultar_orden, name='consultar-orden'),
     path('efectividad-sector/', views.efectividad_sector, name='efectividad-sector'),
     path('efectividad-empleado/', views.efectividad_empleado, name='efectividad-empleado'),
     path('empleados-con-movimiento/', views.empleados_con_movimiento, name='empleados-con-movimiento'),

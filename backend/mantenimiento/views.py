@@ -1,12 +1,99 @@
 # views.py
-from django.db.models import Sum, Count, Case, When, IntegerField, Q, F
+from django.db.models import Sum, Count, Case, When, IntegerField, Q, F, Prefetch
 from django.utils import timezone
-from rest_framework.decorators import api_view
+from rest_framework import status
+from rest_framework.decorators import api_view, authentication_classes, permission_classes
 from rest_framework.response import Response
+from forestal_bot.permissions import OpenClawBearerPermission
 from .models import OrdenServicioDetalle, OrdenServicioCabecera, Sector, Empleado
 from produccion.models import UnidadNegocio, RegistroProduccion
 from datetime import datetime, timedelta, date
 from .serializers import SectorEfectividadSerializer, EmpleadoEfectividadSerializer, EmpleadoConMovimientoSerializer
+
+OMA_SEARCH_LIMIT_DEFAULT = 10
+OMA_SEARCH_LIMIT_MAX = 20
+
+
+def _oma_queryset():
+    return OrdenServicioCabecera.objects.select_related(
+        'equipo', 'unidad_negocio'
+    ).prefetch_related(
+        Prefetch(
+            'ordenserviciodetalle_set',
+            queryset=OrdenServicioDetalle.objects.only(
+                'id', 'cabecera_id', 'detalle', 'realizado',
+                'fecha_realizacion', 'hora_inicio', 'hora_fin', 'observaciones',
+            ).order_by('id'),
+        )
+    )
+
+
+def _oma_is_closed(orden):
+    return (orden.estado or '').strip().casefold() == 'cerrado'
+
+
+def _serialize_oma_minimal(orden):
+    numero = (orden.orden_servicio or '').strip()
+    return {
+        'id': orden.id,
+        'numero_orden': numero,
+        'referencia_visible': numero or f'OMA {orden.id}',
+        'fecha': orden.fecha.isoformat() if orden.fecha else None,
+        'estado': orden.estado,
+        'equipo': {
+            'id': orden.equipo_id,
+            'nombre': orden.equipo.detalle if orden.equipo else '',
+            'patente': orden.equipo.patente if orden.equipo else '',
+        },
+        'descripcion': orden.descripcion,
+    }
+
+
+def _serialize_oma(orden):
+    detalles = list(orden.ordenserviciodetalle_set.all())
+    cerrada = _oma_is_closed(orden)
+    todas_realizadas = bool(detalles) and all(detalle.realizado for detalle in detalles)
+    fecha_realizacion_presente = any(
+        detalle.fecha_realizacion is not None for detalle in detalles
+    )
+    data = _serialize_oma_minimal(orden)
+    data.update({
+        'encontrada': True,
+        'cerrada': cerrada,
+        'cerrado_por': orden.cerrado_por or '',
+        'unidad_negocio': (
+            orden.unidad_negocio.nombre if orden.unidad_negocio else ''
+        ),
+        'creado': orden.creado.isoformat() if orden.creado else None,
+        'detalles': [
+            {
+                'id': detalle.id,
+                'detalle': detalle.detalle,
+                'realizado': detalle.realizado,
+                'fecha_realizacion': (
+                    detalle.fecha_realizacion.isoformat()
+                    if detalle.fecha_realizacion else None
+                ),
+                'hora_inicio': (
+                    detalle.hora_inicio.isoformat()
+                    if detalle.hora_inicio else None
+                ),
+                'hora_fin': (
+                    detalle.hora_fin.isoformat()
+                    if detalle.hora_fin else None
+                ),
+                'observaciones': detalle.observaciones or '',
+            }
+            for detalle in detalles
+        ],
+        'evidencia_cierre': {
+            'estado_cerrado': cerrada,
+            'todas_las_tareas_realizadas': todas_realizadas,
+            'cerrado_por_presente': bool((orden.cerrado_por or '').strip()),
+            'fecha_realizacion_presente': fecha_realizacion_presente,
+        },
+    })
+    return data
 
 # Constantes configurables
 HORAS_DIA_LABORAL = 9      # Lunes a viernes
@@ -906,4 +993,122 @@ def kpis_mantenimiento(request):
         'disponibilidad_global': round(disponibilidad_global, 2),
         'unidad_negocio': unidad_negocio_id,
         'equipos': equipos_kpis
+    })
+
+
+@api_view(['GET'])
+@authentication_classes([])
+@permission_classes([OpenClawBearerPermission])
+def consultar_orden(request, referencia):
+    """Consulta de solo lectura para una OMA por id interno o número formal."""
+    referencia = str(referencia).strip()
+    orden = None
+
+    if referencia.isdecimal():
+        orden = _oma_queryset().filter(id=int(referencia)).first()
+
+    if orden is None:
+        coincidencias = list(
+            _oma_queryset().filter(orden_servicio=referencia).order_by('-fecha', '-creado')[:2]
+        )
+        if len(coincidencias) > 1:
+            return Response(
+                {
+                    'encontrada': False,
+                    'referencia': referencia,
+                    'candidatos': [
+                        _serialize_oma_minimal(candidato)
+                        for candidato in coincidencias
+                    ],
+                },
+                status=status.HTTP_409_CONFLICT,
+            )
+        if coincidencias:
+            orden = coincidencias[0]
+
+    if orden is None:
+        return Response(
+            {'encontrada': False, 'referencia': referencia},
+            status=status.HTTP_404_NOT_FOUND,
+        )
+
+    return Response(_serialize_oma(orden))
+
+
+@api_view(['GET'])
+@authentication_classes([])
+@permission_classes([OpenClawBearerPermission])
+def buscar_estado_orden(request):
+    """Busca candidatos OMA de forma acotada para referencias no confiables."""
+    equipo_id = request.query_params.get('equipo_id')
+    fecha_desde = request.query_params.get('fecha_desde')
+    descripcion = (request.query_params.get('descripcion') or '').strip()
+
+    if not any((equipo_id, fecha_desde, descripcion)):
+        return Response(
+            {'error': 'Se requiere equipo_id, fecha_desde o descripcion'},
+            status=status.HTTP_400_BAD_REQUEST,
+        )
+
+    try:
+        limite = int(request.query_params.get('limite', OMA_SEARCH_LIMIT_DEFAULT))
+        if limite < 1:
+            raise ValueError
+        limite = min(limite, OMA_SEARCH_LIMIT_MAX)
+    except (TypeError, ValueError):
+        return Response(
+            {'error': 'limite debe ser un entero positivo'},
+            status=status.HTTP_400_BAD_REQUEST,
+        )
+
+    queryset = _oma_queryset()
+    if equipo_id:
+        try:
+            queryset = queryset.filter(equipo_id=int(equipo_id))
+        except (TypeError, ValueError):
+            return Response(
+                {'error': 'equipo_id inválido'},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+    if fecha_desde:
+        try:
+            fecha_desde_normalizada = datetime.strptime(
+                fecha_desde, '%Y-%m-%d'
+            ).date()
+        except (TypeError, ValueError):
+            return Response(
+                {'error': 'fecha_desde inválida; use YYYY-MM-DD'},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+        queryset = queryset.filter(fecha__gte=fecha_desde_normalizada)
+    if descripcion:
+        queryset = queryset.filter(descripcion__icontains=descripcion)
+
+    coincidencias = list(
+        queryset.order_by('-fecha', '-creado', '-id')[:limite + 1]
+    )
+    truncado = len(coincidencias) > limite
+    coincidencias = coincidencias[:limite]
+
+    if not coincidencias:
+        return Response({
+            'resultado': 'sin_coincidencias',
+            'encontrada': False,
+            'candidatos': [],
+        })
+    if len(coincidencias) == 1 and not truncado:
+        return Response({
+            'resultado': 'coincidencia_unica',
+            'encontrada': True,
+            'orden': _serialize_oma(coincidencias[0]),
+        })
+    return Response({
+        'resultado': 'candidatos',
+        'encontrada': False,
+        'cantidad': len(coincidencias),
+        'limite': limite,
+        'truncado': truncado,
+        'candidatos': [
+            _serialize_oma_minimal(candidato) for candidato in coincidencias
+        ],
     })
