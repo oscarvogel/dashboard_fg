@@ -8,11 +8,41 @@ from forestal_bot.views import (
     WhatsAppMessageCreateView,
     WhatsAppMessageRecentView,
     WhatsAppOwnerMessageListView,
+    WeighingMeasurementUpsertView,
+    WeighingMovementCompleteView,
+    WeighingMovementDetailView,
+    WeighingMovementListCreateView,
+    WeighingSummaryView,
 )
 
 app_name = "forestal_bot"
 
 urlpatterns = [
+    path(
+        "weighing-movements/",
+        WeighingMovementListCreateView.as_view(),
+        name="weighing-movement-list",
+    ),
+    path(
+        "weighing-movements/summary/",
+        WeighingSummaryView.as_view(),
+        name="weighing-summary",
+    ),
+    path(
+        "weighing-movements/<uuid:pk>/",
+        WeighingMovementDetailView.as_view(),
+        name="weighing-movement-detail",
+    ),
+    path(
+        "weighing-movements/<uuid:pk>/measurements/",
+        WeighingMeasurementUpsertView.as_view(),
+        name="weighing-measurement-upsert",
+    ),
+    path(
+        "weighing-movements/<uuid:pk>/complete/",
+        WeighingMovementCompleteView.as_view(),
+        name="weighing-movement-complete",
+    ),
     path(
         "daily-summaries/",
         DailySummaryListCreateView.as_view(),

@@ -4,6 +4,10 @@
 
 Proyecto fullstack para gestión y visualización de producción forestal.
 
+## Integraciones Forestal Paraguay
+
+- [API de pesajes Felber](docs/FORESTAL_PARAGUAY_PESAJES_API.md)
+
 **Stack principal**
 - Backend: Django 5.x + Django REST Framework
 - Base de datos: MySQL (con PyMySQL)
