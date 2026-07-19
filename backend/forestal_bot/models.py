@@ -45,6 +45,16 @@ WEIGHING_SOURCE_CHOICES = [
     ("mensaje", "Mensaje"),
     ("correccion_manual", "Corrección manual"),
 ]
+WEIGHING_UNIT_CATALOG = {
+    "logistica-felber": {
+        "display_name": "Logística Felber",
+        "usual_official_scale": "felber",
+    },
+    "cosecha-paraguari": {
+        "display_name": "Cosecha Paraguari",
+        "usual_official_scale": "forestal_paraguay",
+    },
+}
 
 
 class WhatsAppGroup(models.Model):
