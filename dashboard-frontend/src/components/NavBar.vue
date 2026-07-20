@@ -339,6 +339,14 @@ const menuItems = [
 // Submenú para Control Operativo
 const controlOperativoSubmenu = [
   {
+    name: 'Cargas de combustible recibidas',
+    path: '/cargas-combustible-recibidas',
+    xmlns: 'http://www.w3.org/2000/svg',
+    viewBox: '0 0 24 24',
+    iconClass: 'h-4 w-4 text-amber-300',
+    iconPath: 'M12 3v18m6-14H9.5a3.5 3.5 0 000 7H15a3 3 0 010 6H6'
+  },
+  {
     name: 'Mensajes WhatsApp',
     path: '/mensajes-whatsapp',
     xmlns: 'http://www.w3.org/2000/svg',

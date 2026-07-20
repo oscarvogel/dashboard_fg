@@ -4,7 +4,11 @@ from django.test import TransactionTestCase
 
 
 class WhatsAppGroupDataMigrationTests(TransactionTestCase):
-    available_apps = ["forestal_bot"]
+    available_apps = [
+        "forestal_bot",
+        "django.contrib.auth",
+        "django.contrib.contenttypes",
+    ]
     migrate_from = ("forestal_bot", "0002_whatsappmessage_forestal_wa_ts_created_idx_and_more")
     migrate_to = ("forestal_bot", "0006_whatsappmessage_image_analysis_error_and_more")
 

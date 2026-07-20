@@ -143,6 +143,17 @@ NUMBER_GROUPING = 3
 # https://docs.djangoproject.com/en/5.1/howto/static-files/
 
 STATIC_URL = '/static/'
+
+# Fuel evidence is private and is served only by authenticated API views.
+MEDIA_ROOT = BASE_DIR / "private_media"
+MEDIA_URL = "/private-media/"
+FUEL_FIELD_CONFIDENCE_THRESHOLD = os.getenv(
+    "FUEL_FIELD_CONFIDENCE_THRESHOLD", "0.80"
+)
+FUEL_EVIDENCE_MAX_BYTES = int(
+    os.getenv("FUEL_EVIDENCE_MAX_BYTES", str(10 * 1024 * 1024))
+)
+FGPY_IDENTITY_HASH_KEY = os.getenv("FGPY_IDENTITY_HASH_KEY", "")
 STATIC_ROOT = os.path.join(BASE_DIR, 'staticfiles')
 
 STATICFILES_DIRS = (
