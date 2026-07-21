@@ -51,6 +51,7 @@ INSTALLED_APPS = [
     'mantenimiento',
     'forestal_bot',
     'incidencias',
+    'fgpy_mantenimiento',
 ]
 
 MIDDLEWARE = [
@@ -96,6 +97,33 @@ DATABASES = {
         ssl_require=False,
     )
 }
+
+FGPY_READONLY_DB_ENABLED = os.getenv("FGPY_READONLY_DB_ENABLED", "false").lower() == "true"
+_FGPY_REQUIRED_DB_VARS = (
+    "FGPY_DB_HOST",
+    "FGPY_DB_NAME",
+    "FGPY_DB_USER",
+    "FGPY_DB_PASSWORD",
+)
+if FGPY_READONLY_DB_ENABLED and all(os.getenv(name) for name in _FGPY_REQUIRED_DB_VARS):
+    _fgpy_options = {}
+    if os.getenv("FGPY_DB_SSL_CA"):
+        _fgpy_options["ssl"] = {"ca": os.getenv("FGPY_DB_SSL_CA")}
+    _fgpy_engine = os.getenv("FGPY_DB_ENGINE", "mysql")
+    if _fgpy_engine == "mysql":
+        _fgpy_engine = "django.db.backends.mysql"
+    DATABASES["fgpy_readonly"] = {
+        "ENGINE": _fgpy_engine,
+        "HOST": os.getenv("FGPY_DB_HOST"),
+        "PORT": os.getenv("FGPY_DB_PORT", "3306"),
+        "NAME": os.getenv("FGPY_DB_NAME"),
+        "USER": os.getenv("FGPY_DB_USER"),
+        "PASSWORD": os.getenv("FGPY_DB_PASSWORD"),
+        "OPTIONS": _fgpy_options,
+        "CONN_MAX_AGE": 60,
+    }
+
+DATABASE_ROUTERS = ["fgpy_mantenimiento.db_router.FgpyReadonlyRouter"]
 
 
 # Password validation
