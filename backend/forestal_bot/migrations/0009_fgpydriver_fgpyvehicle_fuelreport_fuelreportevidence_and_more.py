@@ -158,7 +158,7 @@ class Migration(migrations.Migration):
         ),
         migrations.AddConstraint(
             model_name='fgpydriver',
-            constraint=models.CheckConstraint(condition=models.Q(('organization_key', 'forestal-paraguay')), name='forestal_fgpy_driver_org_check'),
+            constraint=models.CheckConstraint(check=models.Q(('organization_key', 'forestal-paraguay')), name='forestal_fgpy_driver_org_check'),
         ),
         migrations.AddConstraint(
             model_name='fgpydriver',
@@ -166,7 +166,7 @@ class Migration(migrations.Migration):
         ),
         migrations.AddConstraint(
             model_name='fgpyvehicle',
-            constraint=models.CheckConstraint(condition=models.Q(('organization_key', 'forestal-paraguay')), name='forestal_fgpy_vehicle_org_check'),
+            constraint=models.CheckConstraint(check=models.Q(('organization_key', 'forestal-paraguay')), name='forestal_fgpy_vehicle_org_check'),
         ),
         migrations.AddConstraint(
             model_name='fgpyvehicle',
