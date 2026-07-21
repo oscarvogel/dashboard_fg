@@ -1165,7 +1165,7 @@ class FgpyCatalogListCreateView(APIView):
         )
         common = {
             "organization_key": FUEL_ORGANIZATION_KEY,
-            "proposal_key": proposal_key,
+            "proposal_key": proposal_key or None,
             "initial_source_message": source_message,
             "created_via": "bot" if is_bot else "user",
             "created_by": None if is_bot else request.user,

@@ -4,7 +4,7 @@ from unittest.mock import patch
 
 from django.contrib.auth import get_user_model
 from django.core.files.uploadedfile import SimpleUploadedFile
-from django.db import IntegrityError, connection
+from django.db import IntegrityError, connection, transaction
 from django.test import override_settings
 from django.test.utils import CaptureQueriesContext
 from django.urls import reverse
@@ -554,6 +554,27 @@ class FgpyCatalogAPITests(APITestCase):
             format="json", **self.bot_headers,
         )
         self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+
+    def test_mysql_compatible_unique_keys_allow_blank_proposals_and_reject_duplicates(self):
+        FgpyDriver.objects.create(reported_name="Uno", created_via="user")
+        FgpyDriver.objects.create(reported_name="Dos", created_via="user")
+        FgpyDriver.objects.create(
+            reported_name="Tres", created_via="bot", proposal_key="same-proposal"
+        )
+        with self.assertRaises(IntegrityError), transaction.atomic():
+            FgpyDriver.objects.create(
+                reported_name="Cuatro", created_via="bot", proposal_key="same-proposal"
+            )
+
+        FgpyVehicle.objects.create(
+            original_plate="AA 100 AA", normalized_plate="AA100AA",
+            description="Uno", created_via="user", status="confirmed",
+        )
+        with self.assertRaises(IntegrityError), transaction.atomic():
+            FgpyVehicle.objects.create(
+                original_plate="AA100AA", normalized_plate="AA100AA",
+                description="Dos", created_via="user", status="confirmed",
+            )
 
     def test_dashboard_uses_only_fgpy_catalog_endpoints(self):
         source = (
