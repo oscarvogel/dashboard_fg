@@ -370,10 +370,13 @@ class FgpyVehicle(models.Model):
     original_plate = models.CharField(max_length=64, blank=True, default="")
     normalized_plate = models.CharField(max_length=32, blank=True, default="", db_index=True)
     internal_code = models.CharField(max_length=64, blank=True, default="")
-    proposal_key = models.CharField(max_length=128, blank=True, default="")
+    proposal_key = models.CharField(max_length=128, blank=True, null=True, default=None)
     description = models.CharField(max_length=255, blank=True, default="")
     make = models.CharField(max_length=100, blank=True, default="")
     model = models.CharField(max_length=100, blank=True, default="")
+    confirmed_plate_key = models.CharField(
+        max_length=32, blank=True, null=True, default=None, editable=False
+    )
     confirmed_aliases = models.JSONField(default=list, blank=True)
     active = models.BooleanField(default=True)
     status = models.CharField(
@@ -407,16 +410,23 @@ class FgpyVehicle(models.Model):
                 name="forestal_fgpy_vehicle_org_check",
             ),
             models.UniqueConstraint(
-                fields=["organization_key", "normalized_plate"],
-                condition=Q(status="confirmed") & ~Q(normalized_plate=""),
+                fields=["organization_key", "confirmed_plate_key"],
                 name="forestal_fgpy_vehicle_plate_confirmed_uniq",
             ),
             models.UniqueConstraint(
                 fields=["organization_key", "proposal_key"],
-                condition=~Q(proposal_key=""),
                 name="forestal_fgpy_vehicle_proposal_uniq",
             ),
         ]
+
+    def save(self, *args, **kwargs):
+        self.proposal_key = self.proposal_key or None
+        self.confirmed_plate_key = (
+            self.normalized_plate
+            if self.status == "confirmed" and self.normalized_plate
+            else None
+        )
+        super().save(*args, **kwargs)
 
 
 class FgpyDriver(models.Model):
@@ -427,7 +437,7 @@ class FgpyDriver(models.Model):
     reported_name = models.CharField(max_length=255)
     normalized_name = models.CharField(max_length=255, blank=True, default="", db_index=True)
     external_identifier = models.CharField(max_length=128, blank=True, default="")
-    proposal_key = models.CharField(max_length=128, blank=True, default="")
+    proposal_key = models.CharField(max_length=128, blank=True, null=True, default=None)
     whatsapp_sender_identifier_hash = models.CharField(
         max_length=64, blank=True, default=""
     )
@@ -465,10 +475,13 @@ class FgpyDriver(models.Model):
             ),
             models.UniqueConstraint(
                 fields=["organization_key", "proposal_key"],
-                condition=~Q(proposal_key=""),
                 name="forestal_fgpy_driver_proposal_uniq",
             ),
         ]
+
+    def save(self, *args, **kwargs):
+        self.proposal_key = self.proposal_key or None
+        super().save(*args, **kwargs)
 
 
 class FuelReport(models.Model):
