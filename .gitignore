@@ -58,3 +58,6 @@ yarn-debug.log
 # OS
 .DS_Store
 Thumbs.db
+
+# Evidencias privadas recibidas por integraciones (nunca versionar)
+/backend/private_media/

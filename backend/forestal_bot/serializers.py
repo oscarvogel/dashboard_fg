@@ -1,11 +1,19 @@
 from datetime import datetime
 
+from datetime import datetime
+
 from rest_framework import serializers
 
 from forestal_bot.models import (
     DailySummaryDelivery,
     DailySummaryGroup,
     DailySummaryRun,
+    FuelReport,
+    FuelReportEvidence,
+    FuelReportRevision,
+    FuelReportSourceMessage,
+    FgpyDriver,
+    FgpyVehicle,
     WEIGHING_ORGANIZATION_KEY,
     WeighingMeasurement,
     WeighingMeasurementRevision,
@@ -146,6 +154,134 @@ class WhatsAppOwnerMessageSerializer(WhatsAppMessageSerializer):
             "image_analysis_status",
             "image_analysis_error",
             "image_analyzed_at",
+        )
+        read_only_fields = fields
+
+
+class FuelSourceMessageSerializer(serializers.ModelSerializer):
+    message = WhatsAppOwnerMessageSerializer(read_only=True)
+    message_id = serializers.IntegerField(read_only=True)
+
+    class Meta:
+        model = FuelReportSourceMessage
+        fields = ("id", "message_id", "message", "role", "position", "linked_at")
+
+
+class FuelEvidenceSerializer(serializers.ModelSerializer):
+    download_url = serializers.SerializerMethodField()
+
+    def get_download_url(self, obj):
+        request = self.context.get("request")
+        path = f"/api/bot/fuel-reports/{obj.report_id}/evidence/{obj.id}/"
+        return request.build_absolute_uri(path) if request else path
+
+    class Meta:
+        model = FuelReportEvidence
+        fields = (
+            "id",
+            "source_message_id",
+            "evidence_type",
+            "mime_type",
+            "size",
+            "sha256",
+            "position",
+            "received_at",
+            "download_url",
+        )
+
+
+class FuelRevisionSerializer(serializers.ModelSerializer):
+    user_name = serializers.CharField(source="user.username", read_only=True)
+
+    class Meta:
+        model = FuelReportRevision
+        fields = (
+            "id",
+            "field_name",
+            "previous_value",
+            "new_value",
+            "reason",
+            "user_name",
+            "correction_source",
+            "created_at",
+        )
+
+
+class FgpyVehicleSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = FgpyVehicle
+        fields = (
+            "id", "organization_key", "original_plate", "normalized_plate",
+            "internal_code", "proposal_key", "description", "make", "model", "confirmed_aliases",
+            "active", "status", "initial_source_message_id", "created_via",
+            "confirmed_at", "created_at", "updated_at",
+        )
+        read_only_fields = fields
+
+
+class FgpyDriverSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = FgpyDriver
+        fields = (
+            "id", "organization_key", "reported_name", "normalized_name",
+            "external_identifier", "proposal_key", "confirmed_aliases", "active", "status",
+            "initial_source_message_id", "created_via", "confirmed_at",
+            "created_at", "updated_at",
+        )
+        read_only_fields = fields
+
+
+class FuelReportSerializer(serializers.ModelSerializer):
+    vehicle_display = serializers.SerializerMethodField()
+    driver_name = serializers.CharField(source="driver.reported_name", read_only=True)
+    source_messages = FuelSourceMessageSerializer(
+        source="source_links", many=True, read_only=True
+    )
+    evidence = FuelEvidenceSerializer(
+        source="evidence_files", many=True, read_only=True
+    )
+    revisions = FuelRevisionSerializer(many=True, read_only=True)
+
+    def get_vehicle_display(self, obj):
+        if not obj.vehicle_id:
+            return None
+        return obj.vehicle.description or obj.vehicle.original_plate
+
+    class Meta:
+        model = FuelReport
+        fields = (
+            "id",
+            "organization_key",
+            "origin_group_key",
+            "idempotency_key",
+            "event_at",
+            "vehicle",
+            "vehicle_display",
+            "driver",
+            "driver_name",
+            "liters",
+            "odometer_total",
+            "odometer_partial",
+            "station",
+            "receipt_number",
+            "fuel_type",
+            "amount",
+            "currency",
+            "unit_price",
+            "status",
+            "overall_confidence",
+            "field_confidence",
+            "original_extraction",
+            "inconsistencies",
+            "review_notes",
+            "reviewed_by",
+            "reviewed_at",
+            "confirmed_at",
+            "source_messages",
+            "evidence",
+            "revisions",
+            "created_at",
+            "updated_at",
         )
         read_only_fields = fields
 
