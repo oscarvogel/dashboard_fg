@@ -403,7 +403,7 @@ class FgpyVehicle(models.Model):
         ordering = ["description", "original_plate", "created_at"]
         constraints = [
             models.CheckConstraint(
-                condition=Q(organization_key=FUEL_ORGANIZATION_KEY),
+                check=Q(organization_key=FUEL_ORGANIZATION_KEY),
                 name="forestal_fgpy_vehicle_org_check",
             ),
             models.UniqueConstraint(
@@ -460,7 +460,7 @@ class FgpyDriver(models.Model):
         ordering = ["reported_name", "created_at"]
         constraints = [
             models.CheckConstraint(
-                condition=Q(organization_key=FUEL_ORGANIZATION_KEY),
+                check=Q(organization_key=FUEL_ORGANIZATION_KEY),
                 name="forestal_fgpy_driver_org_check",
             ),
             models.UniqueConstraint(
