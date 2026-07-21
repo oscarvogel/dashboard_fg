@@ -23,4 +23,5 @@ urlpatterns = [
     path('api/mantenimiento/', include('mantenimiento.urls')),
     path('api/forestal-bot/', include('forestal_bot.urls')),
     path('api/bot/', include('forestal_bot.bot_urls')),
+    path('api/incidencias/', include('incidencias.urls')),
 ]
